@@ -1,0 +1,1415 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>임대현황 관리</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f3f0;
+    --surface: #ffffff;
+    --surface2: #f9f8f6;
+    --border: #e5e3de;
+    --text: #1a1a18;
+    --text2: #6b6b65;
+    --text3: #9e9e96;
+    --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --red: #dc2626;
+    --red-light: #fef2f2;
+    --orange: #ea580c;
+    --orange-light: #fff7ed;
+    --green: #16a34a;
+    --green-light: #f0fdf4;
+    --yellow: #ca8a04;
+    --yellow-light: #fefce8;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.05);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,.08), 0 4px 6px rgba(0,0,0,.05);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Pretendard', -apple-system, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+  input, textarea, select, button { font-family: inherit; font-size: 14px; }
+  button { cursor: pointer; border: none; outline: none; }
+
+  /* Layout */
+  .app-nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .nav-logo { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+  .nav-right { display: flex; align-items: center; gap: 8px; }
+  .nav-btn {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    transition: all .15s;
+    font-size: 13px;
+  }
+  .nav-btn-ghost { background: transparent; color: var(--text2); }
+  .nav-btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .nav-btn-primary { background: var(--accent); color: white; }
+  .nav-btn-primary:hover { opacity: .9; }
+  .nav-user { font-size: 13px; color: var(--text2); }
+
+  .main-content { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+  /* Login page */
+  .login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f4f3f0 0%, #e8e6e0 100%);
+  }
+  .login-card {
+    background: var(--surface);
+    border-radius: 20px;
+    padding: 48px 40px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: var(--shadow-lg);
+    text-align: center;
+  }
+  .login-icon { font-size: 40px; margin-bottom: 16px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .login-sub { color: var(--text2); margin-bottom: 32px; font-size: 14px; }
+  .google-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    padding: 13px 20px;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+    transition: all .15s;
+    box-shadow: var(--shadow);
+  }
+  .google-btn:hover { border-color: #aaa; box-shadow: var(--shadow-md); }
+  .google-logo { width: 20px; height: 20px; }
+
+  /* Access denied */
+  .access-denied {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .access-denied-card {
+    text-align: center;
+    background: var(--surface);
+    padding: 40px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    max-width: 380px;
+  }
+  .access-denied-card h2 { font-size: 18px; margin-bottom: 10px; }
+  .access-denied-card p { color: var(--text2); font-size: 13px; margin-bottom: 20px; }
+  .email-chip {
+    display: inline-block;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 20px;
+  }
+
+  /* Page header */
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .page-title { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .page-subtitle { font-size: 13px; color: var(--text2); margin-top: 2px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    font-size: 13px;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { opacity: .9; }
+  .btn-secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+  .btn-secondary:hover { background: var(--surface2); }
+  .btn-danger { background: var(--red-light); color: var(--red); border: 1px solid #fecaca; }
+  .btn-danger:hover { background: #fee2e2; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-xs { padding: 3px 8px; font-size: 11px; }
+
+  /* Building grid */
+  .buildings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .building-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    transition: box-shadow .2s;
+  }
+  .building-card:hover { box-shadow: var(--shadow-md); }
+  .building-header {
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .building-name { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+  .building-address { font-size: 12px; color: var(--text3); margin-top: 2px; }
+  .building-count {
+    font-size: 11px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 99px;
+    color: var(--text2);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .lease-list { padding: 10px 0; }
+  .lease-row {
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .lease-row:hover { background: var(--surface2); }
+  .lease-room {
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    border-radius: 5px;
+    min-width: 40px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .lease-tenant { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lease-date { font-size: 11px; color: var(--text2); }
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .badge-red { background: var(--red-light); color: var(--red); }
+  .badge-orange { background: var(--orange-light); color: var(--orange); }
+  .badge-green { background: var(--green-light); color: var(--green); }
+  .badge-gray { background: var(--surface2); color: var(--text3); border: 1px solid var(--border); }
+  .building-footer {
+    padding: 10px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .show-all-btn {
+    background: none;
+    border: none;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+    padding: 0;
+    cursor: pointer;
+  }
+  .show-all-btn:hover { text-decoration: underline; }
+  .empty-leases { padding: 16px 18px; font-size: 12px; color: var(--text3); text-align: center; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 200;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+    animation: fadeIn .15s ease;
+  }
+  @media (min-width: 600px) {
+    .modal-overlay { align-items: center; padding: 20px; }
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .modal {
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    max-height: 92vh;
+    overflow-y: auto;
+    animation: slideUp .2s ease;
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+  }
+  @media (min-width: 600px) {
+    .modal { border-radius: var(--radius); max-width: 560px; max-height: 90vh; }
+  }
+  .modal-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
+  .modal-title { font-size: 16px; font-weight: 700; }
+  .modal-close {
+    background: var(--surface2);
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 18px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .modal-body { padding: 20px; }
+
+  /* Form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-grid-1 { grid-template-columns: 1fr; }
+  @media (max-width: 480px) { .form-grid { grid-template-columns: 1fr; } }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group.span2 { grid-column: 1 / -1; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--text2); }
+  .form-input {
+    padding: 9px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    transition: border .15s;
+    width: 100%;
+  }
+  .form-input:focus { outline: none; border-color: var(--accent); }
+  .form-textarea { resize: vertical; min-height: 70px; }
+  .form-checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .form-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+  .form-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Detail view */
+  .detail-table { width: 100%; border-collapse: collapse; }
+  .detail-table th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .detail-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    vertical-align: middle;
+  }
+  .detail-table tr:last-child td { border-bottom: none; }
+  .detail-table tr:hover td { background: var(--surface2); }
+  .actions-cell { display: flex; gap: 6px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+
+  /* Admin */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab {
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* Role badge */
+  .role-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 5px;
+  }
+  .role-admin { background: #fef3c7; color: #92400e; }
+  .role-editor { background: var(--accent-light); color: var(--accent); }
+  .role-viewer { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+
+  /* Toast */
+  .toast-wrap {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .toast {
+    background: #1a1a18;
+    color: white;
+    padding: 11px 18px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    animation: slideUp .2s ease;
+    pointer-events: auto;
+    white-space: nowrap;
+  }
+  .toast.error { background: var(--red); }
+  .toast.success { background: var(--green); }
+
+  /* Excel import */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .15s;
+    background: var(--surface2);
+  }
+  .drop-zone:hover, .drop-zone.dragging { border-color: var(--accent); background: var(--accent-light); }
+  .drop-zone-icon { font-size: 28px; margin-bottom: 8px; }
+  .drop-zone-text { font-size: 13px; color: var(--text2); }
+  .drop-zone-text strong { color: var(--accent); }
+
+  /* Misc */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--text2); }
+  .empty-state-icon { font-size: 36px; margin-bottom: 10px; }
+  .empty-state-text { font-size: 14px; }
+  .loading-spinner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
+    color: var(--text2);
+    font-size: 14px;
+    gap: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text2);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 16px;
+    font-weight: 500;
+  }
+  .back-btn:hover { color: var(--text); }
+  .info-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .info-chip {
+    font-size: 12px;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .section-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .section-card-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .select-input {
+    padding: 7px 10px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .select-input:focus { outline: none; border-color: var(--accent); }
+  .preview-table-wrap { max-height: 240px; overflow-y: auto; margin-top: 12px; }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+  .insurance-yes { color: var(--green); font-weight: 600; }
+  .insurance-no { color: var(--text3); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+// ============================================================
+// ★ 설정: Supabase 대시보드에서 값을 복사해서 넣으세요
+// ============================================================
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+// ============================================================
+
+const { useState, useEffect, useCallback, useRef } = React;
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Utils ──────────────────────────────────────────────────
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const diff = new Date(dateStr) - new Date();
+  return Math.ceil(diff / 86400000);
+}
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+}
+function formatMoney(n) {
+  if (!n && n !== 0) return '-';
+  if (n >= 10000) return `${(n/10000).toLocaleString()}억`;
+  if (n >= 1000) return `${(n/1000).toLocaleString()}천만`;
+  return `${Number(n).toLocaleString()}만`;
+}
+function ExpiryBadge({ endDate }) {
+  const days = daysUntil(endDate);
+  if (days === null) return <span className="badge badge-gray">날짜없음</span>;
+  if (days < 0) return <span className="badge badge-red">만료 {Math.abs(days)}일</span>;
+  if (days <= 30) return <span className="badge badge-red">D-{days}</span>;
+  if (days <= 90) return <span className="badge badge-orange">D-{days}</span>;
+  return <span className="badge badge-green">D-{days}</span>;
+}
+
+// ── Toast ──────────────────────────────────────────────────
+function ToastContainer({ toasts }) {
+  return (
+    <div className="toast-wrap">
+      {toasts.map(t => <div key={t.id} className={`toast ${t.type||''}`}>{t.msg}</div>)}
+    </div>
+  );
+}
+
+// ── Modal ──────────────────────────────────────────────────
+function Modal({ title, onClose, children, wide }) {
+  useEffect(() => {
+    const h = e => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={wide ? {maxWidth:720} : {}}>
+        <div className="modal-header">
+          <span className="modal-title">{title}</span>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Login ──────────────────────────────────────────────────
+function LoginPage() {
+  const [loading, setLoading] = useState(false);
+  const login = async () => {
+    setLoading(true);
+    await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+  };
+  return (
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-icon">🏢</div>
+        <div className="login-title">임대현황 관리</div>
+        <div className="login-sub">Google 계정으로 로그인하세요</div>
+        <button className="google-btn" onClick={login} disabled={loading}>
+          <svg className="google-logo" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          {loading ? '로그인 중...' : 'Google로 로그인'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Access Denied ──────────────────────────────────────────
+function AccessDeniedPage({ email, onLogout }) {
+  return (
+    <div className="access-denied">
+      <div className="access-denied-card">
+        <div style={{fontSize:40,marginBottom:12}}>🔒</div>
+        <h2>접근 권한이 없습니다</h2>
+        <p>아래 이메일로 접근 요청 후<br/>관리자에게 권한 부여를 요청하세요.</p>
+        <div className="email-chip">{email}</div>
+        <br/>
+        <button className="btn btn-secondary btn-sm" onClick={onLogout}>로그아웃</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Lease Form Modal ───────────────────────────────────────
+function LeaseFormModal({ lease, buildingId, buildings, customFields, onSave, onClose }) {
+  const [form, setForm] = useState(lease ? {
+    building_id: lease.building_id,
+    room_number: lease.room_number||'',
+    tenant_name: lease.tenant_name||'',
+    tenant_phone: lease.tenant_phone||'',
+    deposit: lease.deposit||'',
+    monthly_rent: lease.monthly_rent||'',
+    start_date: lease.start_date||'',
+    end_date: lease.end_date||'',
+    insurance: lease.insurance||false,
+    memo: lease.memo||'',
+    custom_data: lease.custom_data||{}
+  } : {
+    building_id: buildingId||'',
+    room_number:'', tenant_name:'', tenant_phone:'',
+    deposit:'', monthly_rent:'',
+    start_date:'', end_date:'',
+    insurance:false, memo:'', custom_data:{}
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setForm(f => ({...f, [k]: v}));
+  const setCustom = (k, v) => setForm(f => ({...f, custom_data: {...f.custom_data, [k]: v}}));
+
+  const save = async () => {
+    if (!form.building_id) return alert('건물을 선택해주세요');
+    setSaving(true);
+    const payload = {
+      ...form,
+      deposit: form.deposit ? Number(form.deposit) : null,
+      monthly_rent: form.monthly_rent ? Number(form.monthly_rent) : null,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+    };
+    let err;
+    if (lease?.id) {
+      ({error:err} = await sb.from('leases').update(payload).eq('id', lease.id));
+    } else {
+      ({error:err} = await sb.from('leases').insert(payload));
+    }
+    setSaving(false);
+    if (err) { alert('저장 실패: ' + err.message); return; }
+    onSave();
+  };
+
+  return (
+    <Modal title={lease?.id ? '임대 정보 수정' : '임대 추가'} onClose={onClose}>
+      <div className="form-grid">
+        <div className="form-group span2">
+          <label className="form-label">건물</label>
+          <select className="form-input select-input" value={form.building_id} onChange={e=>set('building_id',e.target.value)}>
+            <option value="">건물 선택...</option>
+            {buildings.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">호실</label>
+          <input className="form-input" value={form.room_number} onChange={e=>set('room_number',e.target.value)} placeholder="예: 101호" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">임차인 이름</label>
+          <input className="form-input" value={form.tenant_name} onChange={e=>set('tenant_name',e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">연락처</label>
+          <input className="form-input" value={form.tenant_phone} onChange={e=>set('tenant_phone',e.target.value)} placeholder="010-0000-0000" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">보증금 (만원)</label>
+          <input className="form-input" type="number" value={form.deposit} onChange={e=>set('deposit',e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">월세 (만원)</label>
+          <input className="form-input" type="number" value={form.monthly_rent} onChange={e=>set('monthly_rent',e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">계약 시작일</label>
+          <input className="form-input" type="date" value={form.start_date} onChange={e=>set('start_date',e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">계약 만기일</label>
+          <input className="form-input" type="date" value={form.end_date} onChange={e=>set('end_date',e.target.value)} />
+        </div>
+        <div className="form-group span2">
+          <label className="form-label">보증보험</label>
+          <div className="form-checkbox-row">
+            <input className="form-checkbox" type="checkbox" id="ins" checked={form.insurance} onChange={e=>set('insurance',e.target.checked)} />
+            <label htmlFor="ins" style={{cursor:'pointer'}}>보증보험 가입</label>
+          </div>
+        </div>
+        {customFields.map(cf => (
+          <div key={cf.field_key} className={cf.field_type==='text' && cf.field_key.includes('memo') ? 'form-group span2' : 'form-group'}>
+            <label className="form-label">{cf.field_label}</label>
+            {cf.field_type === 'boolean' ? (
+              <div className="form-checkbox-row">
+                <input className="form-checkbox" type="checkbox"
+                  checked={!!form.custom_data[cf.field_key]}
+                  onChange={e=>setCustom(cf.field_key, e.target.checked)} />
+                <label>{cf.field_label}</label>
+              </div>
+            ) : cf.field_type === 'date' ? (
+              <input className="form-input" type="date" value={form.custom_data[cf.field_key]||''}
+                onChange={e=>setCustom(cf.field_key, e.target.value)} />
+            ) : cf.field_type === 'number' ? (
+              <input className="form-input" type="number" value={form.custom_data[cf.field_key]||''}
+                onChange={e=>setCustom(cf.field_key, e.target.value)} />
+            ) : (
+              <input className="form-input" value={form.custom_data[cf.field_key]||''}
+                onChange={e=>setCustom(cf.field_key, e.target.value)} />
+            )}
+          </div>
+        ))}
+        <div className="form-group span2">
+          <label className="form-label">특이사항 메모</label>
+          <textarea className="form-input form-textarea" value={form.memo} onChange={e=>set('memo',e.target.value)} />
+        </div>
+      </div>
+      <div className="form-footer">
+        <button className="btn btn-secondary" onClick={onClose}>취소</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'저장 중...':'저장'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Building Form Modal ────────────────────────────────────
+function BuildingFormModal({ building, onSave, onClose }) {
+  const [name, setName] = useState(building?.name||'');
+  const [address, setAddress] = useState(building?.address||'');
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (!name.trim()) return alert('건물명을 입력해주세요');
+    setSaving(true);
+    const payload = { name: name.trim(), address: address.trim() };
+    let err;
+    if (building?.id) {
+      ({error:err} = await sb.from('buildings').update(payload).eq('id', building.id));
+    } else {
+      ({error:err} = await sb.from('buildings').insert(payload));
+    }
+    setSaving(false);
+    if (err) { alert('저장 실패: ' + err.message); return; }
+    onSave();
+  };
+  return (
+    <Modal title={building?.id ? '건물 수정' : '건물 추가'} onClose={onClose}>
+      <div className="form-grid form-grid-1">
+        <div className="form-group">
+          <label className="form-label">건물명</label>
+          <input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="예: 강남빌딩" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">주소 (선택)</label>
+          <input className="form-input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="예: 서울시 강남구..." />
+        </div>
+      </div>
+      <div className="form-footer">
+        <button className="btn btn-secondary" onClick={onClose}>취소</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'저장 중...':'저장'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Building Detail ────────────────────────────────────────
+function BuildingDetailPage({ building, leases, customFields, userRole, onBack, onEdit, onDelete, onAddLease, onEditLease, onDeleteLease }) {
+  const sorted = [...leases].sort((a,b) => {
+    if (!a.end_date) return 1;
+    if (!b.end_date) return -1;
+    return new Date(a.end_date) - new Date(b.end_date);
+  });
+  const canEdit = userRole === 'editor' || userRole === 'admin';
+  return (
+    <div>
+      <button className="back-btn" onClick={onBack}>← 건물 목록</button>
+      <div className="page-header">
+        <div>
+          <div className="page-title">{building.name}</div>
+          {building.address && <div className="page-subtitle">{building.address}</div>}
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {canEdit && <button className="btn btn-primary btn-sm" onClick={onAddLease}>+ 임대 추가</button>}
+          {userRole === 'admin' && <>
+            <button className="btn btn-secondary btn-sm" onClick={onEdit}>건물 수정</button>
+            <button className="btn btn-danger btn-sm" onClick={onDelete}>삭제</button>
+          </>}
+        </div>
+      </div>
+      <div className="section-card">
+        <div className="section-card-header">
+          전체 임대 현황 <span className="tag">{leases.length}건</span>
+        </div>
+        {sorted.length === 0 ? (
+          <div className="empty-state" style={{padding:'30px'}}>
+            <div className="empty-state-text">등록된 임대 정보가 없습니다</div>
+          </div>
+        ) : (
+          <div className="table-wrap" style={{border:'none',borderRadius:0}}>
+            <table className="detail-table">
+              <thead>
+                <tr>
+                  <th>호실</th>
+                  <th>임차인</th>
+                  <th>연락처</th>
+                  <th>보증금</th>
+                  <th>월세</th>
+                  <th>계약기간</th>
+                  <th>만기</th>
+                  <th>보증보험</th>
+                  {customFields.map(cf=><th key={cf.field_key}>{cf.field_label}</th>)}
+                  <th>메모</th>
+                  {canEdit && <th>관리</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(l => (
+                  <tr key={l.id}>
+                    <td><span className="lease-room">{l.room_number||'-'}</span></td>
+                    <td style={{fontWeight:500}}>{l.tenant_name||'-'}</td>
+                    <td style={{color:'var(--text2)'}}>{l.tenant_phone||'-'}</td>
+                    <td>{l.deposit ? formatMoney(l.deposit) : '-'}</td>
+                    <td>{l.monthly_rent ? formatMoney(l.monthly_rent) : '-'}</td>
+                    <td style={{fontSize:12,color:'var(--text2)',whiteSpace:'nowrap'}}>{formatDate(l.start_date)} ~ {formatDate(l.end_date)}</td>
+                    <td><ExpiryBadge endDate={l.end_date} /></td>
+                    <td className={l.insurance ? 'insurance-yes' : 'insurance-no'}>{l.insurance ? '✓ 가입' : '미가입'}</td>
+                    {customFields.map(cf=><td key={cf.field_key}>{
+                      cf.field_type==='boolean' ? (l.custom_data?.[cf.field_key] ? '✓' : '-') :
+                      cf.field_type==='date' ? formatDate(l.custom_data?.[cf.field_key]) :
+                      (l.custom_data?.[cf.field_key] || '-')
+                    }</td>)}
+                    <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--text2)',fontSize:12}}>{l.memo||'-'}</td>
+                    {canEdit && (
+                      <td>
+                        <div className="actions-cell">
+                          <button className="btn btn-secondary btn-xs" onClick={()=>onEditLease(l)}>수정</button>
+                          {userRole==='admin' && <button className="btn btn-danger btn-xs" onClick={()=>onDeleteLease(l.id)}>삭제</button>}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Excel Import ───────────────────────────────────────────
+function ExcelImport({ buildings, customFields, onDone, showToast }) {
+  const [preview, setPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef();
+
+  const processFile = file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+        setPreview(rows);
+      } catch(err) { alert('파일을 읽을 수 없습니다: ' + err.message); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleFile = e => { if(e.target.files[0]) processFile(e.target.files[0]); };
+  const handleDrop = e => {
+    e.preventDefault(); setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if(f) processFile(f);
+  };
+
+  const doImport = async () => {
+    if (!preview?.length) return;
+    setImporting(true);
+    let success = 0, fail = 0;
+    for (const row of preview) {
+      const bName = row['건물명']||row['건물']||'';
+      if (!bName) { fail++; continue; }
+      let building = buildings.find(b => b.name === bName);
+      if (!building) {
+        const {data, error} = await sb.from('buildings').insert({name:bName}).select().single();
+        if (error) { fail++; continue; }
+        building = data;
+      }
+      const parseDate = v => {
+        if (!v) return null;
+        if (typeof v === 'number') {
+          const d = new Date((v - 25569) * 86400000);
+          return d.toISOString().split('T')[0];
+        }
+        return String(v).replace(/\./g, '-').replace(/[^0-9-]/g, '').slice(0,10) || null;
+      };
+      const payload = {
+        building_id: building.id,
+        room_number: String(row['호실']||row['호수']||''),
+        tenant_name: String(row['임차인']||row['임차인명']||row['이름']||''),
+        tenant_phone: String(row['연락처']||row['전화번호']||''),
+        deposit: Number(String(row['보증금']||'').replace(/[^0-9]/g,''))||null,
+        monthly_rent: Number(String(row['월세']||'').replace(/[^0-9]/g,''))||null,
+        start_date: parseDate(row['계약시작일']||row['시작일']||row['계약일']),
+        end_date: parseDate(row['만기일']||row['계약만기일']||row['종료일']),
+        insurance: String(row['보증보험']||'').includes('O')||String(row['보증보험']||'').includes('가입')||String(row['보증보험']||'')==='1',
+        memo: String(row['메모']||row['특이사항']||''),
+        custom_data: {}
+      };
+      customFields.forEach(cf => {
+        if (row[cf.field_label] !== undefined) payload.custom_data[cf.field_key] = row[cf.field_label];
+      });
+      const {error} = await sb.from('leases').insert(payload);
+      if (error) fail++; else success++;
+    }
+    setImporting(false);
+    showToast(`${success}건 가져오기 완료${fail?`, ${fail}건 실패`:''}`, success>0?'success':'error');
+    setPreview(null);
+    onDone();
+  };
+
+  return (
+    <div>
+      <p style={{fontSize:13,color:'var(--text2)',marginBottom:16}}>
+        엑셀 파일 열 이름: <strong>건물명, 호실, 임차인명, 연락처, 보증금, 월세, 계약시작일, 만기일, 보증보험, 메모</strong>
+        <br/><span style={{fontSize:12,marginTop:4,display:'block'}}>건물이 없으면 자동 생성됩니다. 보증금/월세는 만원 단위.</span>
+      </p>
+      <div
+        className={`drop-zone ${dragging?'dragging':''}`}
+        onClick={()=>inputRef.current.click()}
+        onDragOver={e=>{e.preventDefault();setDragging(true);}}
+        onDragLeave={()=>setDragging(false)}
+        onDrop={handleDrop}
+      >
+        <div className="drop-zone-icon">📊</div>
+        <div className="drop-zone-text"><strong>클릭 또는 파일 드래그</strong><br/>.xlsx, .xls, .csv 파일</div>
+      </div>
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={handleFile} />
+      {preview && (
+        <div>
+          <div style={{marginTop:16,marginBottom:8,fontWeight:600,fontSize:13}}>{preview.length}개 항목 미리보기</div>
+          <div className="preview-table-wrap table-wrap">
+            <table className="detail-table">
+              <thead>
+                <tr>{Object.keys(preview[0]).map(k=><th key={k}>{k}</th>)}</tr>
+              </thead>
+              <tbody>
+                {preview.slice(0,5).map((r,i)=>(
+                  <tr key={i}>{Object.values(r).map((v,j)=><td key={j}>{String(v)}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {preview.length > 5 && <p style={{fontSize:12,color:'var(--text2)',marginTop:6}}>... 외 {preview.length-5}건</p>}
+          <div className="form-footer" style={{borderTop:'none',marginTop:12}}>
+            <button className="btn btn-secondary" onClick={()=>setPreview(null)}>취소</button>
+            <button className="btn btn-primary" onClick={doImport} disabled={importing}>{importing?'가져오는 중...':'가져오기'}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Custom Field Manager ───────────────────────────────────
+function FieldManager({ fields, onRefresh, showToast }) {
+  const [label, setLabel] = useState('');
+  const [type, setType] = useState('text');
+  const [adding, setAdding] = useState(false);
+
+  const addField = async () => {
+    if (!label.trim()) return;
+    setAdding(true);
+    const key = 'custom_' + label.trim().replace(/[^a-zA-Z0-9가-힣]/g,'_').toLowerCase() + '_' + Date.now().toString(36);
+    const {error} = await sb.from('custom_fields').insert({
+      field_key: key, field_label: label.trim(),
+      field_type: type, sort_order: fields.length
+    });
+    setAdding(false);
+    if (error) showToast('추가 실패', 'error');
+    else { showToast('항목 추가됨', 'success'); setLabel(''); onRefresh(); }
+  };
+
+  const deleteField = async (id, lbl) => {
+    if (!confirm(`"${lbl}" 항목을 삭제하면 모든 임대의 해당 데이터가 사라집니다. 계속할까요?`)) return;
+    const {error} = await sb.from('custom_fields').delete().eq('id', id);
+    if (error) showToast('삭제 실패', 'error');
+    else { showToast('항목 삭제됨'); onRefresh(); }
+  };
+
+  const typeLabel = t => ({text:'텍스트',number:'숫자',date:'날짜',boolean:'체크박스'}[t]||t);
+
+  return (
+    <div>
+      <div style={{marginBottom:16}}>
+        {fields.length === 0
+          ? <div className="empty-state" style={{padding:'20px'}}><div className="empty-state-text">추가 항목 없음</div></div>
+          : fields.map(f => (
+            <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid var(--border)'}}>
+              <span style={{flex:1,fontWeight:500}}>{f.field_label}</span>
+              <span className="tag">{typeLabel(f.field_type)}</span>
+              <button className="btn btn-danger btn-xs" onClick={()=>deleteField(f.id, f.field_label)}>삭제</button>
+            </div>
+          ))
+        }
+      </div>
+      <hr className="divider"/>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>새 항목 추가</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <input className="form-input" style={{flex:1,minWidth:140}} value={label} onChange={e=>setLabel(e.target.value)} placeholder="항목 이름 (예: 주차여부)" />
+        <select className="select-input" value={type} onChange={e=>setType(e.target.value)}>
+          <option value="text">텍스트</option>
+          <option value="number">숫자</option>
+          <option value="date">날짜</option>
+          <option value="boolean">체크박스</option>
+        </select>
+        <button className="btn btn-primary" onClick={addField} disabled={adding||!label.trim()}>{adding?'추가 중...':'추가'}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── User Manager ───────────────────────────────────────────
+function UserManager({ users, currentUserId, onRefresh, showToast }) {
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('viewer');
+  const [adding, setAdding] = useState(false);
+  const [inviteInfo, setInviteInfo] = useState('');
+
+  const addUser = async () => {
+    if (!email.trim()) return;
+    setAdding(true);
+    const {data, error} = await sb.from('user_roles').insert({
+      user_id: '00000000-0000-0000-0000-000000000000',
+      email: email.trim().toLowerCase(),
+      role
+    }).select().single();
+    if (error && error.code === '23505') {
+      const {error:e2} = await sb.from('user_roles').update({role}).eq('email', email.trim().toLowerCase());
+      if (e2) showToast('수정 실패', 'error');
+      else { showToast('권한 수정됨', 'success'); setEmail(''); onRefresh(); }
+    } else if (error) {
+      showToast('추가 실패: ' + error.message, 'error');
+    } else {
+      showToast(`${email} 추가 완료 (로그인 시 자동 적용)`, 'success');
+      setInviteInfo(`${email}에게 아래 링크를 공유하세요:\n${window.location.href}`);
+      setEmail('');
+      onRefresh();
+    }
+    setAdding(false);
+  };
+
+  const changeRole = async (id, newRole) => {
+    const {error} = await sb.from('user_roles').update({role:newRole}).eq('id', id);
+    if (error) showToast('수정 실패', 'error');
+    else { showToast('권한 변경됨', 'success'); onRefresh(); }
+  };
+
+  const removeUser = async (id, uid) => {
+    if (uid === currentUserId) return alert('자기 자신은 삭제할 수 없습니다');
+    if (!confirm('이 사용자의 접근 권한을 제거하시겠습니까?')) return;
+    const {error} = await sb.from('user_roles').delete().eq('id', id);
+    if (error) showToast('삭제 실패', 'error');
+    else { showToast('접근 제거됨'); onRefresh(); }
+  };
+
+  const roleLabel = r => ({admin:'관리자', editor:'편집자', viewer:'뷰어'}[r]||r);
+  const roleCls = r => ({admin:'role-admin', editor:'role-editor', viewer:'role-viewer'}[r]||'');
+
+  return (
+    <div>
+      <div className="section-card" style={{marginBottom:16}}>
+        <table className="detail-table">
+          <thead><tr><th>이메일</th><th>권한</th><th>변경</th><th>관리</th></tr></thead>
+          <tbody>
+            {users.map(u=>(
+              <tr key={u.id}>
+                <td>{u.email} {u.user_id===currentUserId && <span className="tag">나</span>}</td>
+                <td><span className={`role-badge ${roleCls(u.role)}`}>{roleLabel(u.role)}</span></td>
+                <td>
+                  <select className="select-input" style={{fontSize:12,padding:'4px 8px'}} value={u.role}
+                    onChange={e=>changeRole(u.id, e.target.value)}
+                    disabled={u.user_id===currentUserId}>
+                    <option value="viewer">뷰어</option>
+                    <option value="editor">편집자</option>
+                    <option value="admin">관리자</option>
+                  </select>
+                </td>
+                <td>
+                  {u.user_id!==currentUserId && (
+                    <button className="btn btn-danger btn-xs" onClick={()=>removeUser(u.id, u.user_id)}>제거</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <hr className="divider"/>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>사용자 추가 / 권한 수정</div>
+      <p style={{fontSize:12,color:'var(--text2)',marginBottom:12}}>이메일을 등록하면, 해당 Google 계정으로 로그인 시 자동으로 권한이 적용됩니다.</p>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <input className="form-input" style={{flex:1,minWidth:180}} value={email} onChange={e=>setEmail(e.target.value)} placeholder="google@email.com" type="email"/>
+        <select className="select-input" value={role} onChange={e=>setRole(e.target.value)}>
+          <option value="viewer">뷰어</option>
+          <option value="editor">편집자</option>
+          <option value="admin">관리자</option>
+        </select>
+        <button className="btn btn-primary" onClick={addUser} disabled={adding||!email.trim()}>{adding?'추가 중...':'추가'}</button>
+      </div>
+      {inviteInfo && (
+        <div style={{marginTop:12,padding:'12px 14px',background:'var(--accent-light)',borderRadius:'var(--radius-sm)',border:'1px solid #bfdbfe'}}>
+          <div style={{fontSize:12,color:'var(--accent)',fontWeight:600,marginBottom:4}}>📤 초대 링크</div>
+          <div style={{fontSize:12,wordBreak:'break-all'}}>{window.location.href}</div>
+          <button className="btn btn-secondary btn-xs" style={{marginTop:8}} onClick={()=>{navigator.clipboard.writeText(window.location.href);showToast('링크 복사됨');}}>복사</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Admin Panel ────────────────────────────────────────────
+function AdminPage({ users, currentUserId, customFields, buildings, onRefresh, showToast }) {
+  const [tab, setTab] = useState('users');
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <div className="page-title">관리자 패널</div>
+          <div className="page-subtitle">사용자 권한 · 항목 관리 · 엑셀 가져오기</div>
+        </div>
+      </div>
+      <div className="tabs">
+        {[['users','👥 사용자 권한'],['fields','🗂 항목 관리'],['excel','📊 엑셀 가져오기']].map(([k,l])=>(
+          <button key={k} className={`tab ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}</button>
+        ))}
+      </div>
+      <div className="section-card">
+        <div className="modal-body" style={{padding:'16px'}}>
+          {tab==='users' && <UserManager users={users} currentUserId={currentUserId} onRefresh={onRefresh} showToast={showToast}/>}
+          {tab==='fields' && <FieldManager fields={customFields} onRefresh={onRefresh} showToast={showToast}/>}
+          {tab==='excel' && <ExcelImport buildings={buildings} customFields={customFields} onDone={onRefresh} showToast={showToast}/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Dashboard ──────────────────────────────────────────────
+function Dashboard({ buildings, leases, customFields, userRole, onBuildingClick, onAddBuilding, onEditBuilding, onDeleteBuilding, onAddLease, onEditLease }) {
+  const canEdit = userRole === 'editor' || userRole === 'admin';
+  const getLeasesForBuilding = (bid) => {
+    return [...leases.filter(l=>l.building_id===bid)]
+      .sort((a,b) => {
+        if (!a.end_date) return 1; if (!b.end_date) return -1;
+        return new Date(a.end_date) - new Date(b.end_date);
+      }).slice(0,3);
+  };
+  const totalLeases = leases.length;
+  const expiringSoon = leases.filter(l=>{ const d=daysUntil(l.end_date); return d!==null && d>=0 && d<=90; }).length;
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <div className="page-title">임대현황 대시보드</div>
+          <div className="page-subtitle">건물 {buildings.length}개 · 임대 {totalLeases}건 · 90일내 만기 {expiringSoon}건</div>
+        </div>
+        {canEdit && <button className="btn btn-primary" onClick={onAddBuilding}>+ 건물 추가</button>}
+      </div>
+      {buildings.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">🏢</div>
+          <div className="empty-state-text">등록된 건물이 없습니다.<br/>건물을 추가해 시작하세요.</div>
+        </div>
+      ) : (
+        <div className="buildings-grid">
+          {buildings.map(b => {
+            const topLeases = getLeasesForBuilding(b.id);
+            const total = leases.filter(l=>l.building_id===b.id).length;
+            return (
+              <div key={b.id} className="building-card">
+                <div className="building-header">
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="building-name">{b.name}</div>
+                    {b.address && <div className="building-address">{b.address}</div>}
+                  </div>
+                  <span className="building-count">총 {total}건</span>
+                </div>
+                <div className="lease-list">
+                  {topLeases.length === 0
+                    ? <div className="empty-leases">임대 정보 없음</div>
+                    : topLeases.map(l => (
+                      <div key={l.id} className="lease-row" onClick={()=>onBuildingClick(b)}>
+                        <span className="lease-room">{l.room_number||'?'}</span>
+                        <span className="lease-tenant">{l.tenant_name||'(이름없음)'}</span>
+                        <span className="lease-date">{formatDate(l.end_date)}</span>
+                        <ExpiryBadge endDate={l.end_date}/>
+                      </div>
+                    ))
+                  }
+                </div>
+                <div className="building-footer">
+                  <div style={{display:'flex',gap:6}}>
+                    {canEdit && <button className="btn btn-secondary btn-xs" onClick={()=>onAddLease(b)}>+ 임대</button>}
+                    {userRole==='admin' && <>
+                      <button className="btn btn-secondary btn-xs" onClick={()=>onEditBuilding(b)}>수정</button>
+                      <button className="btn btn-danger btn-xs" onClick={()=>onDeleteBuilding(b.id)}>삭제</button>
+                    </>}
+                  </div>
+                  <button className="show-all-btn" onClick={()=>onBuildingClick(b)}>전체보기 →</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── App ────────────────────────────────────────────────────
+function App() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState(null);
+  const [buildings, setBuildings] = useState([]);
+  const [leases, setLeases] = useState([]);
+  const [customFields, setCustomFields] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [page, setPage] = useState('dashboard'); // dashboard | detail | admin
+  const [selectedBuilding, setSelectedBuilding] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = useCallback((msg, type='') => {
+    const id = Date.now();
+    setToasts(t=>[...t,{id,msg,type}]);
+    setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)), 3000);
+  }, []);
+
+  // Auth
+  useEffect(()=>{
+    sb.auth.getSession().then(({data:{session}})=>{ setSession(session); setLoading(false); });
+    const {data:{subscription}} = sb.auth.onAuthStateChange((_,session)=>{ setSession(session); setLoading(false); });
+    return ()=>subscription.unsubscribe();
+  },[]);
+
+  // After session: check/create role
+  useEffect(()=>{
+    if (!session) { setUserRole(null); return; }
+    checkOrCreateRole();
+  },[session]);
+
+  const checkOrCreateRole = async () => {
+    const uid = session.user.id;
+    const email = session.user.email;
+    // Check by user_id
+    let {data} = await sb.from('user_roles').select('*').eq('user_id', uid).single();
+    if (data) { setUserRole(data.role); loadData(); return; }
+    // Check by email (pre-registered)
+    let {data:byEmail} = await sb.from('user_roles').select('*').eq('email', email.toLowerCase()).single();
+    if (byEmail) {
+      // Update user_id
+      await sb.from('user_roles').update({user_id: uid}).eq('id', byEmail.id);
+      setUserRole(byEmail.role); loadData(); return;
+    }
+    // Check if first user (table empty) → become admin
+    const {count} = await sb.from('user_roles').select('*', {count:'exact',head:true});
+    if (count === 0) {
+      await sb.from('user_roles').insert({user_id:uid, email:email.toLowerCase(), role:'admin'});
+      setUserRole('admin'); loadData();
+    } else {
+      setUserRole(null);
+    }
+  };
+
+  const loadData = useCallback(async () => {
+    const [b,l,cf,u] = await Promise.all([
+      sb.from('buildings').select('*').order('name'),
+      sb.from('leases').select('*'),
+      sb.from('custom_fields').select('*').order('sort_order'),
+      sb.from('user_roles').select('*').order('created_at'),
+    ]);
+    if (b.data) setBuildings(b.data);
+    if (l.data) setLeases(l.data);
+    if (cf.data) setCustomFields(cf.data);
+    if (u.data) setUsers(u.data);
+  },[]);
+
+  useEffect(()=>{ if(userRole) loadData(); },[userRole]);
+
+  const refresh = ()=>loadData();
+
+  const logout = () => sb.auth.signOut();
+
+  const deleteBuilding = async (id) => {
+    if (!confirm('건물을 삭제하면 해당 임대 정보도 모두 삭제됩니다. 계속할까요?')) return;
+    const {error} = await sb.from('buildings').delete().eq('id', id);
+    if (error) showToast('삭제 실패', 'error');
+    else { showToast('건물 삭제됨'); if(selectedBuilding?.id===id){ setPage('dashboard'); setSelectedBuilding(null); } refresh(); }
+  };
+
+  const deleteLease = async (id) => {
+    if (!confirm('임대 정보를 삭제하시겠습니까?')) return;
+    const {error} = await sb.from('leases').delete().eq('id', id);
+    if (error) showToast('삭제 실패', 'error');
+    else { showToast('삭제됨'); refresh(); }
+  };
+
+  if (loading) return <div className="loading-spinner"><div className="spinner"/><span>로딩 중...</span></div>;
+  if (!session) return <LoginPage />;
+  if (userRole === null) return <AccessDeniedPage email={session.user.email} onLogout={logout} />;
+
+  const buildingLeases = selectedBuilding ? leases.filter(l=>l.building_id===selectedBuilding.id) : [];
+
+  return (
+    <div>
+      <nav className="app-nav">
+        <div className="nav-logo">🏢 임대현황</div>
+        <div className="nav-right">
+          <span className="nav-user">{session.user.email}</span>
+          {page !== 'dashboard' && <button className="nav-btn nav-btn-ghost" onClick={()=>{setPage('dashboard');setSelectedBuilding(null);}}>대시보드</button>}
+          {userRole === 'admin' && <button className={`nav-btn ${page==='admin'?'nav-btn-primary':'nav-btn-ghost'}`} onClick={()=>setPage('admin')}>⚙️ 관리</button>}
+          <button className="nav-btn nav-btn-ghost" onClick={logout}>로그아웃</button>
+        </div>
+      </nav>
+      <div className="main-content">
+        {page === 'dashboard' && (
+          <Dashboard
+            buildings={buildings} leases={leases} customFields={customFields} userRole={userRole}
+            onBuildingClick={b=>{setSelectedBuilding(b);setPage('detail');}}
+            onAddBuilding={()=>setModal({type:'building_form'})}
+            onEditBuilding={b=>setModal({type:'building_form',data:b})}
+            onDeleteBuilding={deleteBuilding}
+            onAddLease={b=>setModal({type:'lease_form',buildingId:b.id})}
+            onEditLease={l=>setModal({type:'lease_form',data:l})}
+          />
+        )}
+        {page === 'detail' && selectedBuilding && (
+          <BuildingDetailPage
+            building={selectedBuilding} leases={buildingLeases} customFields={customFields} userRole={userRole}
+            onBack={()=>{setPage('dashboard');setSelectedBuilding(null);}}
+            onEdit={()=>setModal({type:'building_form',data:selectedBuilding})}
+            onDelete={()=>deleteBuilding(selectedBuilding.id)}
+            onAddLease={()=>setModal({type:'lease_form',buildingId:selectedBuilding.id})}
+            onEditLease={l=>setModal({type:'lease_form',data:l})}
+            onDeleteLease={deleteLease}
+          />
+        )}
+        {page === 'admin' && (
+          <AdminPage
+            users={users} currentUserId={session.user.id} customFields={customFields} buildings={buildings}
+            onRefresh={refresh} showToast={showToast}
+          />
+        )}
+      </div>
+      {modal?.type === 'lease_form' && (
+        <LeaseFormModal
+          lease={modal.data} buildingId={modal.buildingId}
+          buildings={buildings} customFields={customFields}
+          onSave={()=>{ showToast('저장 완료', 'success'); setModal(null); refresh(); }}
+          onClose={()=>setModal(null)}
+        />
+      )}
+      {modal?.type === 'building_form' && (
+        <BuildingFormModal
+          building={modal.data}
+          onSave={()=>{ showToast('저장 완료', 'success'); setModal(null); refresh(); if(modal.data&&selectedBuilding?.id===modal.data.id){ setSelectedBuilding(s=>({...s,...modal.data})); } }}
+          onClose={()=>setModal(null)}
+        />
+      )}
+      <ToastContainer toasts={toasts}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
