@@ -1,837 +1,915 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>임대현황 관리</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>보담 임대관리</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-:root{--bg:#f4f3f0;--surface:#fff;--surface2:#f9f8f6;--border:#e5e3de;--text:#1a1a18;--text2:#6b6b65;--text3:#9e9e96;--accent:#2563eb;--accent-light:#eff6ff;--red:#dc2626;--red-light:#fef2f2;--orange:#ea580c;--orange-light:#fff7ed;--green:#16a34a;--green-light:#f0fdf4;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 6px rgba(0,0,0,.07);--shadow-lg:0 10px 15px rgba(0,0,0,.08);--radius:12px;--radius-sm:8px}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Pretendard',-apple-system,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
-input,textarea,select,button{font-family:inherit;font-size:14px}
-button{cursor:pointer;border:none;outline:none}
-.app-nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100}
-.nav-logo{font-size:16px;font-weight:700;letter-spacing:-.3px}
-.nav-right{display:flex;align-items:center;gap:8px}
-.nav-btn{padding:6px 14px;border-radius:var(--radius-sm);font-weight:500;transition:all .15s;font-size:13px}
-.nav-btn-ghost{background:transparent;color:var(--text2)}.nav-btn-ghost:hover{background:var(--surface2);color:var(--text)}
-.nav-btn-primary{background:var(--accent);color:#fff}
-.nav-user-btn{background:none;border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px}
-.nav-user-btn:hover{background:var(--surface2)}
-.main-content{max-width:1100px;margin:0 auto;padding:24px 16px}
-.center-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f4f3f0,#e8e6e0);padding:20px}
-.center-card{background:var(--surface);border-radius:20px;padding:40px 36px;width:100%;max-width:420px;box-shadow:var(--shadow-lg);text-align:center}
-.center-icon{font-size:40px;margin-bottom:14px}
-.center-title{font-size:20px;font-weight:700;margin-bottom:6px;letter-spacing:-.5px}
-.center-sub{color:var(--text2);font-size:13px;margin-bottom:24px;line-height:1.6}
-.google-btn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:13px 20px;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);font-weight:600;font-size:14px;color:var(--text);transition:all .15s;box-shadow:var(--shadow);cursor:pointer}
-.google-btn:hover{border-color:#aaa;box-shadow:var(--shadow-md)}
-.google-logo{width:20px;height:20px;flex-shrink:0}
-.pending-steps{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin:20px 0;text-align:left}
-.pending-step{display:flex;align-items:flex-start;gap:12px;padding:8px 0}
-.pending-step:not(:last-child){border-bottom:1px solid var(--border)}
-.step-num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.step-text{font-size:13px;color:var(--text2)}.step-text strong{color:var(--text);display:block;margin-bottom:2px}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--radius-sm);font-weight:500;font-size:13px;transition:all .15s;white-space:nowrap}
-.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{opacity:.9}.btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.btn-secondary{background:var(--surface);border:1px solid var(--border);color:var(--text)}.btn-secondary:hover{background:var(--surface2)}
-.btn-danger{background:var(--red-light);color:var(--red);border:1px solid #fecaca}.btn-danger:hover{background:#fee2e2}
-.btn-success{background:var(--green-light);color:var(--green);border:1px solid #bbf7d0}.btn-success:hover{background:#dcfce7}
-.btn-sm{padding:5px 10px;font-size:12px}.btn-xs{padding:3px 8px;font-size:11px}
-.btn-full{width:100%;justify-content:center;padding:12px;font-size:14px}
-.form-group{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
-.form-label{font-size:12px;font-weight:600;color:var(--text2)}
-.form-input{padding:10px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);transition:border .15s;width:100%}
-.form-input:focus{outline:none;border-color:var(--accent)}
-.form-input:disabled{background:var(--surface2);color:var(--text3)}
-.form-textarea{resize:vertical;min-height:70px}
-.form-checkbox-row{display:flex;align-items:center;gap:8px;margin-top:4px}
-.form-checkbox{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.span2{grid-column:1/-1}
-@media(max-width:480px){.form-grid{grid-template-columns:1fr}}
-.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px}
-.page-title{font-size:20px;font-weight:700;letter-spacing:-.5px}
-.page-subtitle{font-size:13px;color:var(--text2);margin-top:2px}
-.buildings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
-.building-card{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow);transition:box-shadow .2s}
-.building-card:hover{box-shadow:var(--shadow-md)}
-.building-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.building-name{font-size:15px;font-weight:700;letter-spacing:-.3px}
-.building-address{font-size:12px;color:var(--text3);margin-top:2px}
-.building-count{font-size:11px;background:var(--surface2);border:1px solid var(--border);padding:3px 8px;border-radius:99px;color:var(--text2);white-space:nowrap;flex-shrink:0}
-.lease-list{padding:10px 0}
-.lease-row{padding:8px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .1s}
-.lease-row:hover{background:var(--surface2)}
-.lease-room{font-size:12px;font-weight:600;background:var(--surface2);border:1px solid var(--border);padding:2px 7px;border-radius:5px;min-width:40px;text-align:center;flex-shrink:0}
-.lease-tenant{font-size:13px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lease-date{font-size:11px;color:var(--text2)}
-.badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:5px;white-space:nowrap;flex-shrink:0}
-.badge-red{background:var(--red-light);color:var(--red)}
-.badge-orange{background:var(--orange-light);color:var(--orange)}
-.badge-green{background:var(--green-light);color:var(--green)}
-.badge-gray{background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
-.building-footer{padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.show-all-btn{background:none;border:none;font-size:12px;color:var(--accent);font-weight:500;padding:0;cursor:pointer}
-.show-all-btn:hover{text-decoration:underline}
-.empty-leases{padding:16px 18px;font-size:12px;color:var(--text3);text-align:center}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .15s ease}
-@media(min-width:600px){.modal-overlay{align-items:center;padding:20px}}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-.modal{background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-height:92vh;overflow-y:auto;animation:slideUp .2s ease;padding-bottom:env(safe-area-inset-bottom,16px)}
-@media(min-width:600px){.modal{border-radius:var(--radius);max-width:580px;max-height:90vh}}
-.modal-header{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1}
-.modal-title{font-size:16px;font-weight:700}
-.modal-close{background:var(--surface2);border:none;width:30px;height:30px;border-radius:50%;font-size:18px;color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer}
-.modal-body{padding:20px}
-.form-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
-.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
-.detail-table{width:100%;border-collapse:collapse}
-.detail-table th{text-align:left;padding:10px 14px;font-size:12px;font-weight:600;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap}
-.detail-table td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
-.detail-table tr:last-child td{border-bottom:none}
-.detail-table tr:hover td{background:var(--surface2)}
-.actions-cell{display:flex;gap:6px}
-.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto}
-.tab{padding:10px 18px;font-size:13px;font-weight:500;color:var(--text2);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s;white-space:nowrap}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.role-badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:5px}
-.role-admin{background:#fef3c7;color:#92400e}
-.role-editor{background:var(--accent-light);color:var(--accent)}
-.role-viewer{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
-.toast-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
-.toast{background:#1a1a18;color:#fff;padding:11px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);animation:slideUp .2s ease;white-space:nowrap}
-.toast.error{background:var(--red)}.toast.success{background:var(--green)}
-.section-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
-.section-card-header{padding:14px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-.select-input{padding:7px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px}
-.select-input:focus{outline:none;border-color:var(--accent)}
-.drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:32px 20px;text-align:center;cursor:pointer;transition:all .15s;background:var(--surface2)}
-.drop-zone:hover,.drop-zone.dragging{border-color:var(--accent);background:var(--accent-light)}
-.empty-state{text-align:center;padding:40px 20px;color:var(--text2)}
-.loading-spinner{display:flex;align-items:center;justify-content:center;padding:60px;color:var(--text2);font-size:14px;gap:10px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
-.back-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);background:none;border:none;cursor:pointer;padding:0;margin-bottom:16px;font-weight:500}
-.back-btn:hover{color:var(--text)}
-.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text2)}
-.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
-.hidden-badge{font-size:11px;color:var(--text3);font-style:italic}
+  html { -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; }
+  .scrollbar-thin::-webkit-scrollbar { height: 6px; width: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 </style>
 </head>
-<body>
+<body class="bg-slate-100">
 <div id="root"></div>
-<script type="text/babel">
-// ============================================================
-// ★ Supabase 설정값 입력
-// ============================================================
-const SUPABASE_URL = 'https://nhkbymfhmqgilbdxirpq.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oa2J5bWZobXFnaWxiZHhpcnBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MTQ3MDgsImV4cCI6MjA5MjI5MDcwOH0.Ob3Suz5Fi1zCkVSf3Hoiafns75nKIq0YJ7z9Uh3bt_c';
-// ============================================================
 
-const { useState, useEffect, useCallback, useRef } = React;
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+<script type="text/babel" data-presets="react">
+/* ============================================================
+   ⚙️ 설정 — 본인의 Supabase 프로젝트 값으로 교체하세요.
+   (Supabase 대시보드 → Settings → API)
+   ============================================================ */
+const SUPABASE_URL = "https://nhkbymfhmqgilbdxirpq.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oa2J5bWZobXFnaWxiZHhpcnBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MTQ3MDgsImV4cCI6MjA5MjI5MDcwOH0.Ob3Suz5Fi1zCkVSf3Hoiafns75nKIq0YJ7z9Uh3bt_c";
 
-// ── Utils ──────────────────────────────────────────────────
-function daysUntil(d){if(!d)return null;return Math.ceil((new Date(d)-new Date())/86400000);}
-function formatDate(d){if(!d)return'-';const dt=new Date(d);return `${dt.getFullYear()}.${String(dt.getMonth()+1).padStart(2,'0')}.${String(dt.getDate()).padStart(2,'0')}`;}
-function formatMoney(n){if(!n&&n!==0)return'-';if(n>=10000)return `${(n/10000).toLocaleString()}억`;return `${Number(n).toLocaleString()}만`;}
-function ExpiryBadge({endDate}){
-  const d=daysUntil(endDate);
-  if(d===null)return <span className="badge badge-gray">날짜없음</span>;
-  if(d<0)return <span className="badge badge-red">만료 {Math.abs(d)}일</span>;
-  if(d<=30)return <span className="badge badge-red">D-{d}</span>;
-  if(d<=90)return <span className="badge badge-orange">D-{d}</span>;
-  return <span className="badge badge-green">D-{d}</span>;
+const IS_CONFIGURED = SUPABASE_URL.startsWith("https://") && !SUPABASE_ANON_KEY.includes("YOUR_");
+const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ---------------- 유틸 ---------------- */
+function dday(end) {
+  if (!end) return null;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const e = new Date(end + "T00:00:00");
+  if (isNaN(e)) return null;
+  return Math.round((e - t) / 86400000);
+}
+function ddayInfo(end) {
+  const d = dday(end);
+  if (d === null) return { label: "-", cls: "bg-slate-200 text-slate-600" };
+  if (d < 0) return { label: "만료 " + Math.abs(d) + "일", cls: "bg-red-600 text-white" };
+  if (d === 0) return { label: "D-DAY", cls: "bg-red-600 text-white" };
+  if (d <= 30) return { label: "D-" + d, cls: "bg-red-100 text-red-700 border border-red-300" };
+  if (d <= 90) return { label: "D-" + d, cls: "bg-amber-100 text-amber-700 border border-amber-300" };
+  return { label: "D-" + d, cls: "bg-emerald-100 text-emerald-700 border border-emerald-300" };
+}
+function fmtMoney(v) {
+  if (v === null || v === undefined || v === "") return "-";
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  if (n >= 10000) {
+    const eok = Math.floor(n / 10000), man = n % 10000;
+    return man ? `${eok}억 ${man.toLocaleString()}` : `${eok}억`;
+  }
+  return n.toLocaleString();
+}
+function fmtDate(d) { return d || "-"; }
+function normDate(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date && !isNaN(v)) {
+    const y = v.getFullYear(), m = String(v.getMonth() + 1).padStart(2, "0"), dd = String(v.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+  if (typeof v === "number") { // 엑셀 시리얼 날짜
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return normDate(d);
+  }
+  const s = String(v).trim().replace(/[./]/g, "-").replace(/-+$/, "");
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  return null;
+}
+function numOrNull(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(String(v).replace(/[,\s원만]/g, ""));
+  return isNaN(n) ? null : n;
+}
+function leaseSort(a, b) {
+  if (!a.end_date && !b.end_date) return 0;
+  if (!a.end_date) return 1;
+  if (!b.end_date) return -1;
+  return a.end_date < b.end_date ? -1 : a.end_date > b.end_date ? 1 : 0;
 }
 
-// ── Toast ──────────────────────────────────────────────────
-function ToastContainer({toasts}){
-  return <div className="toast-wrap">{toasts.map(t=><div key={t.id} className={`toast ${t.type||''}`}>{t.msg}</div>)}</div>;
-}
-
-// ── Modal ──────────────────────────────────────────────────
-function Modal({title,onClose,children}){
-  useEffect(()=>{
-    const h=e=>e.key==='Escape'&&onClose();
-    document.addEventListener('keydown',h);
-    return()=>document.removeEventListener('keydown',h);
-  },[onClose]);
-  return(
-    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal">
-        <div className="modal-header"><span className="modal-title">{title}</span><button className="modal-close" onClick={onClose}>×</button></div>
-        <div className="modal-body">{children}</div>
+/* ---------------- 공용 컴포넌트 ---------------- */
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
+      <div
+        className={"bg-white w-full sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[92vh] overflow-y-auto " + (wide ? "sm:max-w-3xl" : "sm:max-w-lg")}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b px-4 sm:px-6 py-3 flex items-center justify-between z-10">
+          <h3 className="font-bold text-lg text-slate-800">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none px-2">×</button>
+        </div>
+        <div className="px-4 sm:px-6 py-4">{children}</div>
       </div>
     </div>
   );
 }
+function Field({ label, children }) {
+  return (
+    <label className="block mb-3">
+      <span className="block text-sm font-medium text-slate-600 mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}
+const inputCls = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white";
+const btnPrimary = "bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold rounded-lg px-4 py-2 text-sm disabled:opacity-50";
+const btnGhost = "border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg px-4 py-2 text-sm";
+const btnDanger = "bg-red-50 border border-red-300 text-red-600 hover:bg-red-100 font-medium rounded-lg px-4 py-2 text-sm";
 
-// ── Login ──────────────────────────────────────────────────
-function LoginPage(){
-  const[loading,setLoading]=useState(false);
-  const login=async()=>{setLoading(true);await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}});};
-  return(
-    <div className="center-page">
-      <div className="center-card">
-        <div className="center-icon">🏢</div>
-        <div className="center-title">임대현황 관리</div>
-        <div className="center-sub">Google 계정으로 로그인하세요.<br/>처음 로그인 시 간단한 정보 입력이 필요합니다.</div>
-        <button className="google-btn" onClick={login} disabled={loading}>
-          <svg className="google-logo" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-          </svg>
-          {loading?'로그인 중...':'Google로 로그인'}
+function RoleBadge({ role }) {
+  const map = {
+    admin: ["관리자", "bg-purple-100 text-purple-700"],
+    editor: ["편집자", "bg-blue-100 text-blue-700"],
+    viewer: ["열람자", "bg-slate-200 text-slate-600"],
+    pending: ["승인대기", "bg-amber-100 text-amber-700"],
+  };
+  const [label, cls] = map[role] || [role, "bg-slate-200 text-slate-600"];
+  return <span className={"inline-block text-xs font-semibold px-2 py-0.5 rounded-full " + cls}>{label}</span>;
+}
+
+/* ---------------- 인증 화면들 ---------------- */
+function SetupScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow p-8 max-w-md text-center">
+        <div className="text-4xl mb-3">⚙️</div>
+        <h1 className="text-xl font-bold mb-2">초기 설정이 필요합니다</h1>
+        <p className="text-sm text-slate-600 leading-relaxed">
+          index.html 상단의 <code className="bg-slate-100 px-1 rounded">SUPABASE_URL</code> 과{" "}
+          <code className="bg-slate-100 px-1 rounded">SUPABASE_ANON_KEY</code> 를<br />
+          본인의 Supabase 프로젝트 값으로 교체한 뒤 다시 배포하세요.
+        </p>
+      </div>
+    </div>
+  );
+}
+function LoginScreen() {
+  const login = () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin + window.location.pathname } });
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-b from-blue-50 to-slate-100">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm text-center">
+        <div className="text-4xl mb-2">🏢</div>
+        <h1 className="text-2xl font-bold text-slate-800 mb-1">보담 임대관리</h1>
+        <p className="text-sm text-slate-500 mb-8">건물 임대차 현황 관리 시스템</p>
+        <button onClick={login} className="w-full flex items-center justify-center gap-3 border border-slate-300 rounded-xl py-3 font-semibold text-slate-700 hover:bg-slate-50 active:bg-slate-100">
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.3 6.1 29.4 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.3 6.1 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C41 35.4 44 30.2 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
+          Google 계정으로 로그인
         </button>
       </div>
     </div>
   );
 }
-
-// ── Register ───────────────────────────────────────────────
-function RegisterPage({session,onDone}){
-  const[name,setName]=useState(session.user.user_metadata?.full_name||'');
-  const[phone,setPhone]=useState('');
-  const[saving,setSaving]=useState(false);
-  const submit=async()=>{
-    if(!name.trim())return alert('이름을 입력해주세요');
-    if(!phone.trim())return alert('연락처를 입력해주세요');
-    setSaving(true);
-    const{error}=await sb.from('user_roles').upsert({user_id:session.user.id,email:session.user.email,full_name:name.trim(),phone:phone.trim(),role:'viewer',status:'pending'},{onConflict:'email'});
-    setSaving(false);
-    if(error)alert('오류: '+error.message);else onDone();
+function RegisterScreen({ session, onDone }) {
+  const [name, setName] = useState(session.user.user_metadata?.full_name || "");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const submit = async () => {
+    if (!name.trim() || !phone.trim()) { setErr("이름과 연락처를 모두 입력해주세요."); return; }
+    setBusy(true); setErr("");
+    const { error } = await sb.from("user_roles").upsert({
+      user_id: session.user.id, email: session.user.email, full_name: name.trim(), phone: phone.trim(), role: "viewer", status: "pending",
+    }, { onConflict: "email" });
+    setBusy(false);
+    if (error) setErr("등록 실패: " + error.message); else onDone();
   };
-  return(
-    <div className="center-page">
-      <div className="center-card">
-        <div className="center-icon">👋</div>
-        <div className="center-title">접근 신청</div>
-        <div className="center-sub">관리자 승인 후 서비스를 이용할 수 있습니다.</div>
-        <div style={{display:'inline-block',background:'var(--accent-light)',border:'1px solid #bfdbfe',color:'var(--accent)',padding:'5px 14px',borderRadius:'99px',fontSize:'13px',fontWeight:'500',marginBottom:20}}>{session.user.email}</div>
-        <div className="form-group" style={{textAlign:'left'}}><label className="form-label">이름 *</label><input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="실명 입력"/></div>
-        <div className="form-group" style={{textAlign:'left'}}><label className="form-label">연락처 *</label><input className="form-input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="010-0000-0000"/></div>
-        <button className="btn btn-primary btn-full" style={{marginTop:8}} onClick={submit} disabled={saving}>{saving?'제출 중...':'접근 신청하기'}</button>
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
+        <h1 className="text-xl font-bold text-slate-800 mb-1">사용자 등록</h1>
+        <p className="text-sm text-slate-500 mb-6">처음 방문하셨네요. 정보를 입력하면 관리자 승인 후 이용할 수 있습니다.</p>
+        <Field label="이름 *"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" /></Field>
+        <Field label="연락처 *"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" inputMode="tel" /></Field>
+        {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
+        <button className={btnPrimary + " w-full py-3"} onClick={submit} disabled={busy}>{busy ? "등록 중..." : "등록 요청"}</button>
+        <button className="w-full text-center text-sm text-slate-400 mt-4 hover:text-slate-600" onClick={() => sb.auth.signOut()}>다른 계정으로 로그인</button>
+      </div>
+    </div>
+  );
+}
+function PendingScreen({ profile }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm text-center">
+        <div className="text-4xl mb-3">⏳</div>
+        <h1 className="text-xl font-bold text-slate-800 mb-2">승인 대기 중</h1>
+        <p className="text-sm text-slate-500 leading-relaxed mb-6">
+          {profile.full_name}님의 등록 요청이 접수되었습니다.<br />관리자가 승인하면 이용할 수 있습니다.
+        </p>
+        <button className={btnGhost + " w-full"} onClick={() => window.location.reload()}>새로고침</button>
+        <button className="w-full text-center text-sm text-slate-400 mt-4 hover:text-slate-600" onClick={() => sb.auth.signOut()}>로그아웃</button>
       </div>
     </div>
   );
 }
 
-// ── Pending ────────────────────────────────────────────────
-function PendingPage({userRecord,onLogout,onRefresh}){
-  const[checking,setChecking]=useState(false);
-  const check=async()=>{setChecking(true);await onRefresh();setChecking(false);};
-  return(
-    <div className="center-page">
-      <div className="center-card">
-        <div className="center-icon">⏳</div>
-        <div className="center-title">승인 대기 중</div>
-        <div className="center-sub">관리자가 접근 권한을 검토하고 있습니다.</div>
-        <div className="pending-steps">
-          <div className="pending-step"><div className="step-num">✓</div><div className="step-text"><strong>신청 완료</strong>{userRecord?.full_name} · {userRecord?.email}</div></div>
-          <div className="pending-step"><div className="step-num" style={{background:'var(--orange)'}}>2</div><div className="step-text"><strong>관리자 승인 대기</strong>승인 후 바로 이용 가능합니다</div></div>
-        </div>
-        <div style={{display:'flex',gap:8,justifyContent:'center'}}>
-          <button className="btn btn-secondary btn-sm" onClick={check} disabled={checking}>{checking?'확인 중...':'승인 확인'}</button>
-          <button className="btn btn-secondary btn-sm" onClick={onLogout}>로그아웃</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Profile Form (본인 정보 수정) ──────────────────────────
-function ProfileForm({userRecord,onSave,onClose}){
-  const[name,setName]=useState(userRecord?.full_name||'');
-  const[phone,setPhone]=useState(userRecord?.phone||'');
-  const[saving,setSaving]=useState(false);
-  const save=async()=>{
-    if(!name.trim())return alert('이름을 입력해주세요');
-    if(!phone.trim())return alert('연락처를 입력해주세요');
-    setSaving(true);
-    const{error}=await sb.from('user_roles').update({full_name:name.trim(),phone:phone.trim()}).eq('id',userRecord.id);
-    setSaving(false);
-    if(error)alert('저장 실패: '+error.message);else onSave();
-  };
-  return(
-    <div>
-      <div className="form-group"><label className="form-label">이메일</label><input className="form-input" value={userRecord?.email||''} disabled/></div>
-      <div className="form-group"><label className="form-label">이름 *</label><input className="form-input" value={name} onChange={e=>setName(e.target.value)}/></div>
-      <div className="form-group"><label className="form-label">연락처 *</label><input className="form-input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="010-0000-0000"/></div>
-      <div className="form-footer"><button className="btn btn-secondary" onClick={onClose}>취소</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'저장 중...':'저장'}</button></div>
-    </div>
-  );
-}
-
-// ── Admin User Edit Form (관리자가 사용자 정보 수정) ───────
-function AdminUserEditForm({user,onSave,onClose}){
-  const[name,setName]=useState(user?.full_name||'');
-  const[phone,setPhone]=useState(user?.phone||'');
-  const[saving,setSaving]=useState(false);
-  const save=async()=>{
-    if(!name.trim())return alert('이름을 입력해주세요');
-    setSaving(true);
-    const{error}=await sb.from('user_roles').update({full_name:name.trim(),phone:phone.trim()}).eq('id',user.id);
-    setSaving(false);
-    if(error)alert('저장 실패: '+error.message);else onSave();
-  };
-  return(
-    <div>
-      <div className="form-group"><label className="form-label">이메일</label><input className="form-input" value={user?.email||''} disabled/></div>
-      <div className="form-group"><label className="form-label">이름 *</label><input className="form-input" value={name} onChange={e=>setName(e.target.value)}/></div>
-      <div className="form-group"><label className="form-label">연락처</label><input className="form-input" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="010-0000-0000"/></div>
-      <div className="form-footer"><button className="btn btn-secondary" onClick={onClose}>취소</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'저장 중...':'저장'}</button></div>
-    </div>
-  );
-}
-
-// ── Building Form Modal ────────────────────────────────────
-function BuildingFormModal({building,onSave,onClose}){
-  const[name,setName]=useState(building?.name||'');
-  const[address,setAddress]=useState(building?.address||'');
-  const[saving,setSaving]=useState(false);
-  const save=async()=>{
-    if(!name.trim())return alert('건물명을 입력해주세요');
-    setSaving(true);
-    const payload={name:name.trim(),address:address.trim()};
-    const{error}=building?.id?await sb.from('buildings').update(payload).eq('id',building.id):await sb.from('buildings').insert(payload);
-    setSaving(false);
-    if(error)alert('저장 실패: '+error.message);else onSave();
-  };
-  return(
-    <Modal title={building?.id?'건물 수정':'건물 추가'} onClose={onClose}>
-      <div className="form-group"><label className="form-label">건물명 *</label><input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="예: 강남빌딩"/></div>
-      <div className="form-group"><label className="form-label">주소 (선택)</label><input className="form-input" value={address} onChange={e=>setAddress(e.target.value)} placeholder="예: 서울시 강남구 ..."/></div>
-      <div className="form-footer"><button className="btn btn-secondary" onClick={onClose}>취소</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'저장 중...':'저장'}</button></div>
-    </Modal>
-  );
-}
-
-// ── Lease Form Modal ───────────────────────────────────────
-function LeaseFormModal({lease,buildingId,buildings,customFields,onSave,onClose}){
-  const[form,setForm]=useState({
-    building_id:lease?.building_id||buildingId||'',
-    room_number:lease?.room_number||'',
-    tenant_name:lease?.tenant_name||'',
-    tenant_phone:lease?.tenant_phone||'',
-    start_date:lease?.start_date||'',
-    end_date:lease?.end_date||'',
-    deposit:lease?.deposit||'',
-    monthly_rent:lease?.monthly_rent||'',
-    management_fee:lease?.management_fee||'',
-    insurance:lease?.insurance||false,
-    memo:lease?.memo||'',
-    custom_data:lease?.custom_data||{}
+/* ---------------- 임대 모달 (편집자/관리자) ---------------- */
+function LeaseModal({ lease, buildings, customFields, onClose, onSaved }) {
+  const isNew = !lease.id;
+  const [f, setF] = useState({
+    building_id: lease.building_id || (buildings[0] && buildings[0].id) || "",
+    room_number: lease.room_number || "",
+    tenant_name: lease.tenant_name || "",
+    phone: lease.tenant_phone || "",
+    start_date: lease.start_date || "",
+    end_date: lease.end_date || "",
+    deposit: lease.deposit ?? "",
+    rent: lease.rent ?? "",
+    maintenance_fee: lease.management_fee ?? "",
+    insurance: lease.insurance || "",
+    memo: lease.memo || "",
+    extra: lease.custom_data || {},
   });
-  const[saving,setSaving]=useState(false);
-  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const setCustom=(k,v)=>setForm(f=>({...f,custom_data:{...f.custom_data,[k]:v}}));
-  const save=async()=>{
-    if(!form.building_id)return alert('건물을 선택해주세요');
-    setSaving(true);
-    const payload={...form,deposit:form.deposit?Number(form.deposit):null,monthly_rent:form.monthly_rent?Number(form.monthly_rent):null,management_fee:form.management_fee?Number(form.management_fee):null,start_date:form.start_date||null,end_date:form.end_date||null};
-    const{error}=lease?.id?await sb.from('leases').update(payload).eq('id',lease.id):await sb.from('leases').insert(payload);
-    setSaving(false);
-    if(error)alert('저장 실패: '+error.message);else onSave();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const setExtra = (k, v) => setF((p) => ({ ...p, extra: { ...p.extra, [k]: v } }));
+
+  const save = async () => {
+    if (!f.building_id || !f.room_number.trim()) { setErr("건물과 호수는 필수입니다."); return; }
+    setBusy(true); setErr("");
+    const payload = {
+      building_id: f.building_id,
+      room_number: f.room_number.trim(),
+      tenant_name: f.tenant_name.trim() || null,
+      tenant_phone: f.phone.trim() || null,
+      start_date: f.start_date || null,
+      end_date: f.end_date || null,
+      deposit: numOrNull(f.deposit),
+      rent: numOrNull(f.rent),
+      management_fee: numOrNull(f.maintenance_fee),
+      insurance: f.insurance.trim() || null,
+      memo: f.memo.trim() || null,
+      custom_data: f.extra,
+    };
+    const q = isNew ? sb.from("leases").insert(payload) : sb.from("leases").update(payload).eq("id", lease.id);
+    const { error } = await q;
+    setBusy(false);
+    if (error) setErr("저장 실패: " + error.message); else { onSaved(); onClose(); }
   };
-  return(
-    <Modal title={lease?.id?'임대 정보 수정':'임대 추가'} onClose={onClose}>
-      <div className="form-grid">
-        <div className="form-group span2"><label className="form-label">건물</label>
-          <select className="form-input select-input" value={form.building_id} onChange={e=>set('building_id',e.target.value)}>
-            <option value="">건물 선택...</option>
-            {buildings.map(b=><option key={b.id} value={b.id}>{b.name}{b.address?` (${b.address})`:''}</option>)}
+  const remove = async () => {
+    if (!confirm("이 임대 정보를 삭제할까요?")) return;
+    setBusy(true);
+    const { error } = await sb.from("leases").delete().eq("id", lease.id);
+    setBusy(false);
+    if (error) setErr("삭제 실패: " + error.message); else { onSaved(); onClose(); }
+  };
+
+  return (
+    <Modal title={isNew ? "임대 정보 추가" : "임대 정보 수정"} onClose={onClose} wide>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+        <Field label="건물 *">
+          <select className={inputCls} value={f.building_id} onChange={(e) => set("building_id", e.target.value)}>
+            {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-        </div>
-        <div className="form-group"><label className="form-label">호수</label><input className="form-input" value={form.room_number} onChange={e=>set('room_number',e.target.value)} placeholder="101호"/></div>
-        <div className="form-group"><label className="form-label">임차인 이름</label><input className="form-input" value={form.tenant_name} onChange={e=>set('tenant_name',e.target.value)}/></div>
-        <div className="form-group"><label className="form-label">연락처</label><input className="form-input" value={form.tenant_phone} onChange={e=>set('tenant_phone',e.target.value)} placeholder="010-0000-0000"/></div>
-        <div className="form-group"><label className="form-label">입주날짜</label><input className="form-input" type="date" value={form.start_date} onChange={e=>set('start_date',e.target.value)}/></div>
-        <div className="form-group"><label className="form-label">만기일</label><input className="form-input" type="date" value={form.end_date} onChange={e=>set('end_date',e.target.value)}/></div>
-        <div className="form-group"><label className="form-label">보증금 (만원)</label><input className="form-input" type="number" value={form.deposit} onChange={e=>set('deposit',e.target.value)}/></div>
-        <div className="form-group"><label className="form-label">월세 (만원)</label><input className="form-input" type="number" value={form.monthly_rent} onChange={e=>set('monthly_rent',e.target.value)}/></div>
-        <div className="form-group"><label className="form-label">관리비 (만원)</label><input className="form-input" type="number" value={form.management_fee} onChange={e=>set('management_fee',e.target.value)}/></div>
-        <div className="form-group"><label className="form-label">보증보험</label>
-          <div className="form-checkbox-row"><input className="form-checkbox" type="checkbox" id="ins" checked={form.insurance} onChange={e=>set('insurance',e.target.checked)}/><label htmlFor="ins" style={{cursor:'pointer'}}>보증보험 가입</label></div>
-        </div>
-        {customFields.map(cf=>(
-          <div key={cf.field_key} className="form-group">
-            <label className="form-label">{cf.field_label}</label>
-            {cf.field_type==='boolean'?<div className="form-checkbox-row"><input className="form-checkbox" type="checkbox" checked={!!form.custom_data[cf.field_key]} onChange={e=>setCustom(cf.field_key,e.target.checked)}/><label>{cf.field_label}</label></div>
-            :cf.field_type==='date'?<input className="form-input" type="date" value={form.custom_data[cf.field_key]||''} onChange={e=>setCustom(cf.field_key,e.target.value)}/>
-            :cf.field_type==='number'?<input className="form-input" type="number" value={form.custom_data[cf.field_key]||''} onChange={e=>setCustom(cf.field_key,e.target.value)}/>
-            :<input className="form-input" value={form.custom_data[cf.field_key]||''} onChange={e=>setCustom(cf.field_key,e.target.value)}/>}
-          </div>
-        ))}
-        <div className="form-group span2"><label className="form-label">특이사항 메모</label><textarea className="form-input form-textarea" value={form.memo} onChange={e=>set('memo',e.target.value)}/></div>
+        </Field>
+        <Field label="호수 *"><input className={inputCls} value={f.room_number} onChange={(e) => set("room_number", e.target.value)} placeholder="101호" /></Field>
+        <Field label="임차인명"><input className={inputCls} value={f.tenant_name} onChange={(e) => set("tenant_name", e.target.value)} /></Field>
+        <Field label="연락처"><input className={inputCls} value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></Field>
+        <Field label="입주날짜"><input type="date" className={inputCls} value={f.start_date} onChange={(e) => set("start_date", e.target.value)} /></Field>
+        <Field label="만기일"><input type="date" className={inputCls} value={f.end_date} onChange={(e) => set("end_date", e.target.value)} /></Field>
+        <Field label="보증금 (만원)"><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
+        <Field label="월세 (만원)"><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
+        <Field label="관리비 (만원)"><input className={inputCls} value={f.maintenance_fee} onChange={(e) => set("maintenance_fee", e.target.value)} inputMode="numeric" /></Field>
+        <Field label="보증보험"><input className={inputCls} value={f.insurance} onChange={(e) => set("insurance", e.target.value)} placeholder="가입 / 미가입" list="insurance-opts" /></Field>
+        <datalist id="insurance-opts"><option value="가입" /><option value="미가입" /></datalist>
       </div>
-      <div className="form-footer"><button className="btn btn-secondary" onClick={onClose}>취소</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'저장 중...':'저장'}</button></div>
+      <Field label="메모"><textarea className={inputCls} rows="3" value={f.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
+      {customFields.length > 0 && (
+        <div className="border-t pt-3 mt-1">
+          <p className="text-sm font-semibold text-slate-500 mb-2">추가 정보</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+            {customFields.map((cf) => (
+              <Field key={cf.id} label={cf.field_label}>
+                <input className={inputCls} value={f.extra[cf.field_key] || ""} onChange={(e) => setExtra(cf.field_key, e.target.value)} />
+              </Field>
+            ))}
+          </div>
+        </div>
+      )}
+      {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
+      <div className="flex gap-2 pt-2 pb-2">
+        <button className={btnPrimary + " flex-1 py-3"} onClick={save} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
+        {!isNew && <button className={btnDanger} onClick={remove} disabled={busy}>삭제</button>}
+        <button className={btnGhost} onClick={onClose}>취소</button>
+      </div>
     </Modal>
   );
 }
 
-// ── Building Detail ────────────────────────────────────────
-function BuildingDetailPage({building,leases,customFields,userRole,onBack,onEdit,onDelete,onAddLease,onEditLease,onDeleteLease}){
-  const sorted=[...leases].sort((a,b)=>{if(!a.end_date)return 1;if(!b.end_date)return -1;return new Date(a.end_date)-new Date(b.end_date);});
-  const canEdit=userRole==='editor'||userRole==='admin';
-  const isViewer=userRole==='viewer';
-  return(
+/* ---------------- 임대 목록 (테이블/카드 반응형) ---------------- */
+function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
+  const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
+  if (leases.length === 0) return <p className="text-center text-slate-400 text-sm py-10">임대 정보가 없습니다.</p>;
+  return (
     <div>
-      <button className="back-btn" onClick={onBack}>← 건물 목록</button>
-      <div className="page-header">
-        <div><div className="page-title">{building.name}</div>{building.address&&<div className="page-subtitle">{building.address}</div>}</div>
-        <div style={{display:'flex',gap:8}}>
-          {canEdit&&<button className="btn btn-primary btn-sm" onClick={onAddLease}>+ 임대 추가</button>}
-          {userRole==='admin'&&<><button className="btn btn-secondary btn-sm" onClick={onEdit}>건물 수정</button><button className="btn btn-danger btn-sm" onClick={onDelete}>삭제</button></>}
-        </div>
-      </div>
-      <div className="section-card">
-        <div className="section-card-header">전체 임대 현황 <span className="tag">{leases.length}건</span></div>
-        {sorted.length===0?<div className="empty-state"><div style={{fontSize:13}}>등록된 임대 정보가 없습니다</div></div>:(
-          <div className="table-wrap" style={{border:'none',borderRadius:0}}>
-            <table className="detail-table">
-              <thead>
-                <tr>
-                  <th>호수</th>
-                  {!isViewer&&<th>임차인</th>}
-                  <th>연락처</th>
-                  <th>입주날짜</th>
-                  <th>만기일</th>
-                  <th>보증금</th>
-                  <th>월세</th>
-                  <th>관리비</th>
-                  <th>보증보험</th>
-                  {customFields.map(cf=><th key={cf.field_key}>{cf.field_label}</th>)}
-                  <th>메모</th>
-                  {canEdit&&<th>관리</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map(l=>(
-                  <tr key={l.id}>
-                    <td><span className="lease-room">{l.room_number||'-'}</span></td>
-                    {!isViewer&&<td style={{fontWeight:500}}>{l.tenant_name||'-'}</td>}
-                    <td style={{color:'var(--text2)'}}>{l.tenant_phone||'-'}</td>
-                    <td style={{fontSize:12,color:'var(--text2)'}}>{formatDate(l.start_date)}</td>
-                    <td><ExpiryBadge endDate={l.end_date}/></td>
-                    <td>{l.deposit?formatMoney(l.deposit):'-'}</td>
-                    <td>{l.monthly_rent?formatMoney(l.monthly_rent):'-'}</td>
-                    <td>{l.management_fee?formatMoney(l.management_fee):'-'}</td>
-                    <td style={{color:l.insurance?'var(--green)':'var(--text3)',fontWeight:l.insurance?600:400}}>{l.insurance?'✓ 가입':'미가입'}</td>
-                    {customFields.map(cf=><td key={cf.field_key}>{cf.field_type==='boolean'?(l.custom_data?.[cf.field_key]?'✓':'-'):cf.field_type==='date'?formatDate(l.custom_data?.[cf.field_key]):(l.custom_data?.[cf.field_key]||'-')}</td>)}
-                    <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--text2)',fontSize:12}}>{l.memo||'-'}</td>
-                    {canEdit&&<td><div className="actions-cell"><button className="btn btn-secondary btn-xs" onClick={()=>onEditLease(l)}>수정</button>{userRole==='admin'&&<button className="btn btn-danger btn-xs" onClick={()=>onDeleteLease(l.id)}>삭제</button>}</div></td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Excel Import ───────────────────────────────────────────
-function ExcelImport({buildings,customFields,onDone,showToast}){
-  const[preview,setPreview]=useState(null);
-  const[importing,setImporting]=useState(false);
-  const[dragging,setDragging]=useState(false);
-  const inputRef=useRef();
-  const processFile=file=>{
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{
-        const wb=XLSX.read(e.target.result,{type:'array'});
-        const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-        setPreview(rows);
-      }catch(err){alert('파일 읽기 실패: '+err.message);}
-    };
-    reader.readAsArrayBuffer(file);
-  };
-  const doImport=async()=>{
-    if(!preview?.length)return;
-    setImporting(true);let success=0,fail=0;
-    for(const row of preview){
-      const bName=String(row['건물명(주소)']||row['건물명']||row['건물']||'').trim();
-      if(!bName){fail++;continue;}
-      let building=buildings.find(b=>b.name===bName);
-      if(!building){
-        const{data,error}=await sb.from('buildings').insert({name:bName}).select().single();
-        if(error){fail++;continue;}
-        building=data;
-        buildings.push(building);
-      }
-      const parseDate=v=>{
-        if(!v)return null;
-        if(typeof v==='number')return new Date((v-25569)*86400000).toISOString().split('T')[0];
-        const s=String(v).replace(/\./g,'-').replace(/[^0-9-]/g,'');
-        return s.length>=8?s.slice(0,10):null;
-      };
-      const toNum=v=>Number(String(v||'').replace(/[^0-9]/g,''))||null;
-      const payload={
-        building_id:building.id,
-        room_number:String(row['호수']||row['호실']||row['호수']||''),
-        tenant_name:String(row['임차인명']||row['임차인']||row['이름']||''),
-        tenant_phone:String(row['연락처']||row['전화번호']||''),
-        start_date:parseDate(row['입주날짜']||row['계약시작일']||row['시작일']),
-        end_date:parseDate(row['만기일']||row['계약만기일']),
-        deposit:toNum(row['보증금(만원)']||row['보증금']),
-        monthly_rent:toNum(row['월세(만원)']||row['월세']),
-        management_fee:toNum(row['관리비(만원)']||row['관리비'])||null,
-        insurance:['O','o','Y','y','가입','1','true'].includes(String(row['보증보험']||'')),
-        memo:String(row['메모']||row['특이사항']||''),
-        custom_data:{}
-      };
-      customFields.forEach(cf=>{if(row[cf.field_label]!==undefined)payload.custom_data[cf.field_key]=row[cf.field_label];});
-      const{error}=await sb.from('leases').insert(payload);
-      if(error)fail++;else success++;
-    }
-    setImporting(false);
-    showToast(`${success}건 가져오기 완료${fail?`, ${fail}건 실패`:''}`,success>0?'success':'error');
-    setPreview(null);onDone();
-  };
-  return(
-    <div>
-      <p style={{fontSize:13,color:'var(--text2)',marginBottom:16}}>
-        엑셀 열 이름: <strong>건물명(주소), 호수, 임차인명, 연락처, 입주날짜, 만기일, 보증금(만원), 월세(만원), 관리비(만원), 보증보험, 메모</strong>
-        <br/><span style={{fontSize:12}}>보증보험: O 또는 X · 날짜: YYYY-MM-DD</span>
-      </p>
-      <div className={`drop-zone ${dragging?'dragging':''}`}
-        onClick={()=>inputRef.current.click()}
-        onDragOver={e=>{e.preventDefault();setDragging(true);}}
-        onDragLeave={()=>setDragging(false)}
-        onDrop={e=>{e.preventDefault();setDragging(false);if(e.dataTransfer.files[0])processFile(e.dataTransfer.files[0]);}}>
-        <div style={{fontSize:28,marginBottom:8}}>📊</div>
-        <div style={{fontSize:13,color:'var(--text2)'}}><strong style={{color:'var(--accent)'}}>클릭 또는 드래그</strong><br/>.xlsx .xls .csv</div>
-      </div>
-      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>{if(e.target.files[0])processFile(e.target.files[0]);}}/>
-      {preview&&(
-        <div>
-          <div style={{margin:'14px 0 8px',fontWeight:600,fontSize:13}}>{preview.length}개 항목 미리보기 (최대 5행)</div>
-          <div className="table-wrap" style={{maxHeight:220,overflow:'auto'}}>
-            <table className="detail-table">
-              <thead><tr>{Object.keys(preview[0]).map(k=><th key={k}>{k}</th>)}</tr></thead>
-              <tbody>{preview.slice(0,5).map((r,i)=><tr key={i}>{Object.values(r).map((v,j)=><td key={j}>{String(v)}</td>)}</tr>)}</tbody>
-            </table>
-          </div>
-          <div className="form-footer" style={{borderTop:'none',marginTop:12}}>
-            <button className="btn btn-secondary" onClick={()=>setPreview(null)}>취소</button>
-            <button className="btn btn-primary" onClick={doImport} disabled={importing}>{importing?'가져오는 중...':'가져오기'}</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Field Manager ──────────────────────────────────────────
-function FieldManager({fields,onRefresh,showToast}){
-  const[label,setLabel]=useState('');const[type,setType]=useState('text');const[adding,setAdding]=useState(false);
-  const addField=async()=>{
-    if(!label.trim())return;setAdding(true);
-    const key='cf_'+Date.now().toString(36);
-    const{error}=await sb.from('custom_fields').insert({field_key:key,field_label:label.trim(),field_type:type,sort_order:fields.length});
-    setAdding(false);
-    if(error)showToast('추가 실패','error');else{showToast('항목 추가됨','success');setLabel('');onRefresh();}
-  };
-  const deleteField=async(id,lbl)=>{
-    if(!confirm(`"${lbl}" 항목을 삭제하면 모든 임대의 해당 데이터도 사라집니다. 계속할까요?`))return;
-    const{error}=await sb.from('custom_fields').delete().eq('id',id);
-    if(error)showToast('삭제 실패','error');else{showToast('항목 삭제됨');onRefresh();}
-  };
-  return(
-    <div>
-      {fields.length===0?<div className="empty-state" style={{padding:20}}><div style={{fontSize:13}}>추가 항목 없음</div></div>:
-        fields.map(f=>(
-          <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
-            <span style={{flex:1,fontWeight:500}}>{f.field_label}</span>
-            <span className="tag">{{text:'텍스트',number:'숫자',date:'날짜',boolean:'체크박스'}[f.field_type]}</span>
-            <button className="btn btn-danger btn-xs" onClick={()=>deleteField(f.id,f.field_label)}>삭제</button>
-          </div>
-        ))
-      }
-      <hr className="divider"/>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>새 항목 추가</div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <input className="form-input" style={{flex:1,minWidth:140}} value={label} onChange={e=>setLabel(e.target.value)} placeholder="항목 이름 (예: 주차여부)"/>
-        <select className="select-input" value={type} onChange={e=>setType(e.target.value)}>
-          <option value="text">텍스트</option><option value="number">숫자</option>
-          <option value="date">날짜</option><option value="boolean">체크박스</option>
-        </select>
-        <button className="btn btn-primary" onClick={addField} disabled={adding||!label.trim()}>{adding?'추가 중...':'추가'}</button>
-      </div>
-    </div>
-  );
-}
-
-// ── User Manager ───────────────────────────────────────────
-function UserManager({users,currentUserId,onRefresh,showToast}){
-  const[editTarget,setEditTarget]=useState(null);
-  const pending=users.filter(u=>u.status==='pending');
-  const active=users.filter(u=>u.status==='active');
-  const approve=async id=>{const{error}=await sb.from('user_roles').update({status:'active'}).eq('id',id);if(error)showToast('승인 실패','error');else{showToast('승인 완료','success');onRefresh();}};
-  const reject=async(id,uid)=>{
-    if(uid===currentUserId)return alert('자기 자신은 삭제할 수 없습니다');
-    if(!confirm('이 사용자의 접근을 거부하시겠습니까?'))return;
-    const{error}=await sb.from('user_roles').delete().eq('id',id);
-    if(error)showToast('실패','error');else{showToast('접근 제거됨');onRefresh();}
-  };
-  const changeRole=async(id,role)=>{const{error}=await sb.from('user_roles').update({role}).eq('id',id);if(error)showToast('수정 실패','error');else{showToast('권한 변경됨','success');onRefresh();}};
-  const roleLabel=r=>({admin:'관리자',editor:'편집자',viewer:'뷰어'}[r]||r);
-  const roleCls=r=>({admin:'role-admin',editor:'role-editor',viewer:'role-viewer'}[r]||'');
-  return(
-    <div>
-      {editTarget&&(
-        <Modal title={`${editTarget.full_name||editTarget.email} 정보 수정`} onClose={()=>setEditTarget(null)}>
-          <AdminUserEditForm user={editTarget} onSave={()=>{showToast('저장 완료','success');setEditTarget(null);onRefresh();}} onClose={()=>setEditTarget(null)}/>
-        </Modal>
-      )}
-      {pending.length>0&&(
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>
-            승인 대기 <span style={{background:'var(--orange-light)',color:'var(--orange)',padding:'2px 8px',borderRadius:'99px',fontSize:12,fontWeight:600}}>{pending.length}명</span>
-          </div>
-          <div className="table-wrap">
-            <table className="detail-table">
-              <thead><tr><th>이름</th><th>이메일</th><th>연락처</th><th>신청일</th><th>처리</th></tr></thead>
-              <tbody>
-                {pending.map(u=>(
-                  <tr key={u.id}>
-                    <td style={{fontWeight:500}}>{u.full_name||'-'}</td>
-                    <td style={{color:'var(--text2)',fontSize:12}}>{u.email}</td>
-                    <td style={{color:'var(--text2)'}}>{u.phone||'-'}</td>
-                    <td style={{fontSize:12,color:'var(--text3)'}}>{formatDate(u.created_at?.split('T')[0])}</td>
-                    <td><div className="actions-cell"><button className="btn btn-success btn-xs" onClick={()=>approve(u.id)}>✓ 승인</button><button className="btn btn-danger btn-xs" onClick={()=>reject(u.id,u.user_id)}>거부</button></div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>활성 사용자</div>
-      <div className="table-wrap">
-        <table className="detail-table">
-          <thead><tr><th>이름</th><th>이메일</th><th>연락처</th><th>권한</th><th>권한변경</th><th>정보수정</th><th>관리</th></tr></thead>
+      {/* PC: 테이블 */}
+      <div className="hidden md:block overflow-x-auto scrollbar-thin bg-white rounded-xl border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-500 border-b bg-slate-50">
+              {showBuilding && <th className="px-3 py-2.5 font-medium whitespace-nowrap">건물명</th>}
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">호수</th>
+              {canEdit && <th className="px-3 py-2.5 font-medium whitespace-nowrap">임차인명</th>}
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">연락처</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">입주날짜</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">만기일</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">D-day</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap text-right">보증금(만원)</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap text-right">월세(만원)</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap text-right">관리비(만원)</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">보증보험</th>
+            </tr>
+          </thead>
           <tbody>
-            {active.map(u=>(
-              <tr key={u.id}>
-                <td style={{fontWeight:500}}>{u.full_name||'-'} {u.user_id===currentUserId&&<span className="tag">나</span>}</td>
-                <td style={{color:'var(--text2)',fontSize:12}}>{u.email}</td>
-                <td style={{color:'var(--text2)'}}>{u.phone||'-'}</td>
-                <td><span className={`role-badge ${roleCls(u.role)}`}>{roleLabel(u.role)}</span></td>
-                <td>
-                  <select className="select-input" style={{fontSize:12,padding:'4px 8px'}} value={u.role}
-                    onChange={e=>changeRole(u.id,e.target.value)} disabled={u.user_id===currentUserId}>
-                    <option value="viewer">뷰어</option><option value="editor">편집자</option><option value="admin">관리자</option>
-                  </select>
-                </td>
-                <td><button className="btn btn-secondary btn-xs" onClick={()=>setEditTarget(u)}>수정</button></td>
-                <td>{u.user_id!==currentUserId&&<button className="btn btn-danger btn-xs" onClick={()=>reject(u.id,u.user_id)}>제거</button>}</td>
-              </tr>
-            ))}
+            {leases.map((l) => {
+              const d = ddayInfo(l.end_date);
+              return (
+                <tr key={l.id} className={"border-b last:border-0 " + (canEdit ? "hover:bg-blue-50 cursor-pointer" : "")}
+                    onClick={() => canEdit && onRowClick(l)}>
+                  {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
+                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.room_number}</td>
+                  {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
+                  <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_phone || "-"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.start_date)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.end_date)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap"><span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span></td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.deposit)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.rent)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{l.insurance || "-"}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-// ── Admin Page ─────────────────────────────────────────────
-function AdminPage({users,currentUserId,customFields,buildings,onRefresh,showToast}){
-  const[tab,setTab]=useState('users');
-  const pendingCount=users.filter(u=>u.status==='pending').length;
-  return(
-    <div>
-      <div className="page-header"><div><div className="page-title">관리자 패널</div><div className="page-subtitle">사용자 승인 · 권한 관리 · 항목 설정 · 엑셀 가져오기</div></div></div>
-      <div className="tabs">
-        {[['users',`👥 사용자${pendingCount>0?` (대기 ${pendingCount}명)`:''}`],['fields','🗂 항목 관리'],['excel','📊 엑셀 가져오기']].map(([k,l])=>(
-          <button key={k} className={`tab ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}</button>
-        ))}
-      </div>
-      <div className="section-card"><div style={{padding:16}}>
-        {tab==='users'&&<UserManager users={users} currentUserId={currentUserId} onRefresh={onRefresh} showToast={showToast}/>}
-        {tab==='fields'&&<FieldManager fields={customFields} onRefresh={onRefresh} showToast={showToast}/>}
-        {tab==='excel'&&<ExcelImport buildings={buildings} customFields={customFields} onDone={onRefresh} showToast={showToast}/>}
-      </div></div>
-    </div>
-  );
-}
-
-// ── Dashboard ──────────────────────────────────────────────
-function Dashboard({buildings,leases,customFields,userRole,onBuildingClick,onAddBuilding,onEditBuilding,onDeleteBuilding,onAddLease}){
-  const canEdit=userRole==='editor'||userRole==='admin';
-  const isViewer=userRole==='viewer';
-  const topLeases=bid=>[...leases.filter(l=>l.building_id===bid)].sort((a,b)=>{if(!a.end_date)return 1;if(!b.end_date)return -1;return new Date(a.end_date)-new Date(b.end_date);}).slice(0,3);
-  const expiring=leases.filter(l=>{const d=daysUntil(l.end_date);return d!==null&&d>=0&&d<=90;}).length;
-  return(
-    <div>
-      <div className="page-header">
-        <div><div className="page-title">임대현황 대시보드</div><div className="page-subtitle">건물 {buildings.length}개 · 임대 {leases.length}건 · 90일내 만기 {expiring}건</div></div>
-        {canEdit&&<button className="btn btn-primary" onClick={onAddBuilding}>+ 건물 추가</button>}
-      </div>
-      {buildings.length===0?(
-        <div className="empty-state"><div style={{fontSize:36,marginBottom:10}}>🏢</div><div style={{fontSize:14}}>등록된 건물이 없습니다.<br/>건물을 추가해 시작하세요.</div></div>
-      ):(
-        <div className="buildings-grid">
-          {buildings.map(b=>{
-            const tl=topLeases(b.id);
-            const total=leases.filter(l=>l.building_id===b.id).length;
-            return(
-              <div key={b.id} className="building-card">
-                <div className="building-header">
-                  <div style={{flex:1,minWidth:0}}>
-                    <div className="building-name">{b.name}</div>
-                    {b.address&&<div className="building-address">{b.address}</div>}
-                  </div>
-                  <span className="building-count">총 {total}건</span>
+      {/* 모바일: 카드 */}
+      <div className="md:hidden space-y-2">
+        {leases.map((l) => {
+          const d = ddayInfo(l.end_date);
+          return (
+            <div key={l.id} className={"bg-white rounded-xl border p-3 " + (canEdit ? "active:bg-blue-50" : "")}
+                 onClick={() => canEdit && onRowClick(l)}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="font-bold text-slate-800">
+                  {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
+                  {l.room_number}
+                  {canEdit && l.tenant_name && <span className="font-medium text-slate-600 ml-1.5">· {l.tenant_name}</span>}
                 </div>
-                <div className="lease-list">
-                  {tl.length===0?<div className="empty-leases">임대 정보 없음</div>:tl.map(l=>(
-                    <div key={l.id} className="lease-row" onClick={()=>onBuildingClick(b)}>
-                      <span className="lease-room">{l.room_number||'?'}</span>
-                      {!isViewer&&<span className="lease-tenant">{l.tenant_name||'(이름없음)'}</span>}
-                      <span className="lease-date">{formatDate(l.end_date)}</span>
-                      <ExpiryBadge endDate={l.end_date}/>
-                    </div>
-                  ))}
-                </div>
-                <div className="building-footer">
-                  <div style={{display:'flex',gap:6}}>
-                    {canEdit&&<button className="btn btn-secondary btn-xs" onClick={()=>onAddLease(b)}>+ 임대</button>}
-                    {userRole==='admin'&&<><button className="btn btn-secondary btn-xs" onClick={()=>onEditBuilding(b)}>수정</button><button className="btn btn-danger btn-xs" onClick={()=>onDeleteBuilding(b.id)}>삭제</button></>}
-                  </div>
-                  <button className="show-all-btn" onClick={()=>onBuildingClick(b)}>전체보기 →</button>
-                </div>
+                <span className={"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 " + d.cls}>{d.label}</span>
               </div>
-            );
-          })}
+              <div className="text-sm text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
+                <span>만기 {fmtDate(l.end_date)}</span>
+                {l.deposit != null && <span>보증금 {fmtMoney(l.deposit)}만</span>}
+                {l.rent != null && <span>월세 {fmtMoney(l.rent)}만</span>}
+                {l.insurance && <span>보험 {l.insurance}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 건물 추가/수정 모달 ---------------- */
+function BuildingModal({ building, onClose, onSaved }) {
+  const isNew = !building.id;
+  const [name, setName] = useState(building.name || "");
+  const [address, setAddress] = useState(building.address || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const save = async () => {
+    if (!name.trim()) { setErr("건물명을 입력하세요."); return; }
+    setBusy(true); setErr("");
+    const payload = { name: name.trim(), address: address.trim() || null };
+    const q = isNew ? sb.from("buildings").insert(payload) : sb.from("buildings").update(payload).eq("id", building.id);
+    const { error } = await q;
+    setBusy(false);
+    if (error) setErr("저장 실패: " + error.message); else { onSaved(); onClose(); }
+  };
+  const remove = async () => {
+    if (!confirm("건물을 삭제하면 소속된 모든 임대 정보도 함께 삭제됩니다. 계속할까요?")) return;
+    setBusy(true);
+    const { error } = await sb.from("buildings").delete().eq("id", building.id);
+    setBusy(false);
+    if (error) setErr("삭제 실패: " + error.message); else { onSaved(); onClose(); }
+  };
+  return (
+    <Modal title={isNew ? "건물 추가" : "건물 수정"} onClose={onClose}>
+      <Field label="건물명"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 보담빌딩" /></Field>
+      <Field label="주소"><input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="예: 서울 마포구 ..." /></Field>
+      {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
+      <div className="flex gap-2 pb-2">
+        <button className={btnPrimary + " flex-1"} onClick={save} disabled={busy}>저장</button>
+        {!isNew && <button className={btnDanger} onClick={remove} disabled={busy}>삭제</button>}
+        <button className={btnGhost} onClick={onClose}>취소</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- 프로필 모달 ---------------- */
+function ProfileModal({ profile, onClose, onSaved }) {
+  const [name, setName] = useState(profile.full_name || "");
+  const [phone, setPhone] = useState(profile.phone || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const save = async () => {
+    if (!name.trim() || !phone.trim()) { setErr("이름과 연락처를 입력하세요."); return; }
+    setBusy(true); setErr("");
+    const { error } = await sb.from("user_roles").update({ full_name: name.trim(), phone: phone.trim() }).eq("id", profile.id);
+    setBusy(false);
+    if (error) setErr("저장 실패: " + error.message); else { onSaved(); onClose(); }
+  };
+  return (
+    <Modal title="내 프로필" onClose={onClose}>
+      <div className="mb-4 text-sm text-slate-500">
+        <p>{profile.email}</p>
+        <p className="mt-1">권한: <RoleBadge role={profile.role} /></p>
+      </div>
+      <Field label="이름"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label="연락처"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></Field>
+      {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
+      <div className="flex gap-2 pb-2">
+        <button className={btnPrimary + " flex-1"} onClick={save} disabled={busy}>저장</button>
+        <button className={btnGhost} onClick={onClose}>취소</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- 관리자 패널 ---------------- */
+function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }) {
+  const [tab, setTab] = useState("users");
+  const [users, setUsers] = useState([]);
+  const [newField, setNewField] = useState("");
+  const [msg, setMsg] = useState("");
+  const [importResult, setImportResult] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef(null);
+
+  const loadUsers = async () => {
+    const { data } = await sb.from("user_roles").select("*").order("created_at");
+    setUsers(data || []);
+  };
+  useEffect(() => { loadUsers(); }, []);
+
+  const setRole = async (u, role) => {
+    if (u.id === profile.id && role !== "admin" && !confirm("본인의 관리자 권한을 해제하면 이 패널에 접근할 수 없습니다. 계속할까요?")) return;
+    await sb.from("user_roles").update({ role }).eq("id", u.id);
+    loadUsers();
+  };
+  const approve = async (u, role) => {
+    await sb.from("user_roles").update({ status: "active", role }).eq("id", u.id);
+    loadUsers();
+  };
+  const removeUser = async (u) => {
+    if (!confirm(`${u.full_name || u.email} 사용자를 삭제할까요?`)) return;
+    await sb.from("user_roles").delete().eq("id", u.id);
+    loadUsers();
+  };
+  const addField = async () => {
+    if (!newField.trim()) return;
+    const { error } = await sb.from("custom_fields").insert({
+      field_key: "cf_" + Date.now().toString(36),
+      field_label: newField.trim(),
+      field_type: "text",
+      sort_order: customFields.length,
+    });
+    if (error) setMsg("추가 실패: " + error.message);
+    else { setNewField(""); setMsg(""); onDataChanged(); }
+  };
+  const removeField = async (cf) => {
+    if (!confirm(`"${cf.field_label}" 필드를 삭제할까요? (기존 입력값은 데이터에 남지만 화면에 표시되지 않습니다)`)) return;
+    await sb.from("custom_fields").delete().eq("id", cf.id);
+    onDataChanged();
+  };
+
+  /* 엑셀 업로드 */
+  const handleFile = async (file) => {
+    if (!file) return;
+    setImporting(true); setImportResult(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      if (rows.length === 0) throw new Error("데이터 행이 없습니다.");
+      const keyOf = (row, kw) => Object.keys(row).find((k) => k.replace(/\s/g, "").includes(kw));
+      const k = {
+        building: keyOf(rows[0], "건물명"), room: keyOf(rows[0], "호수"),
+        tenant: keyOf(rows[0], "임차인"), phone: keyOf(rows[0], "연락처"),
+        start: keyOf(rows[0], "입주"), end: keyOf(rows[0], "만기"),
+        deposit: keyOf(rows[0], "보증금"), rent: keyOf(rows[0], "월세"),
+        fee: keyOf(rows[0], "관리비"), insurance: keyOf(rows[0], "보증보험"),
+        memo: keyOf(rows[0], "메모"),
+      };
+      if (!k.building || !k.room) throw new Error("필수 열(건물명, 호수)을 찾을 수 없습니다. 열 제목을 확인하세요.");
+
+      // 1) 건물 확보 (기존 조회 + 없는 것 생성)
+      const { data: existingB } = await sb.from("buildings").select("id,name");
+      const bMap = {}; (existingB || []).forEach((b) => (bMap[b.name] = b.id));
+      const newNames = [...new Set(rows.map((r) => String(r[k.building]).trim()).filter((n) => n && !bMap[n]))];
+      if (newNames.length > 0) {
+        const { data: inserted, error } = await sb.from("buildings").insert(newNames.map((name) => ({ name }))).select();
+        if (error) throw error;
+        (inserted || []).forEach((b) => (bMap[b.name] = b.id));
+      }
+
+      // 2) 중복 방지: 기존 임대 키 셋
+      const { data: existingL } = await sb.from("leases").select("building_id,room_number,tenant_name,start_date,end_date");
+      const dupKey = (l) => [l.building_id, l.room_number, l.tenant_name || "", l.start_date || "", l.end_date || ""].join("|");
+      const seen = new Set((existingL || []).map(dupKey));
+
+      // 3) 행 변환
+      let skipped = 0, invalid = 0;
+      const payloads = [];
+      for (const r of rows) {
+        const bname = String(r[k.building]).trim();
+        const room = String(r[k.room]).trim();
+        if (!bname || !room) { invalid++; continue; }
+        const p = {
+          building_id: bMap[bname],
+          room_number: room,
+          tenant_name: k.tenant ? String(r[k.tenant]).trim() || null : null,
+          tenant_phone: k.phone ? String(r[k.phone]).trim() || null : null,
+          start_date: k.start ? normDate(r[k.start]) : null,
+          end_date: k.end ? normDate(r[k.end]) : null,
+          deposit: k.deposit ? numOrNull(r[k.deposit]) : null,
+          rent: k.rent ? numOrNull(r[k.rent]) : null,
+          management_fee: k.fee ? numOrNull(r[k.fee]) : null,
+          insurance: k.insurance ? String(r[k.insurance]).trim() || null : null,
+          memo: k.memo ? String(r[k.memo]).trim() || null : null,
+          custom_data: {},
+        };
+        const key = dupKey(p);
+        if (seen.has(key)) { skipped++; continue; }
+        seen.add(key);
+        payloads.push(p);
+      }
+
+      // 4) 100건씩 삽입
+      for (let i = 0; i < payloads.length; i += 100) {
+        const { error } = await sb.from("leases").insert(payloads.slice(i, i + 100));
+        if (error) throw error;
+      }
+      setImportResult({ ok: true, added: payloads.length, skipped, invalid, total: rows.length });
+      onDataChanged();
+    } catch (e) {
+      setImportResult({ ok: false, message: e.message });
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const pendingUsers = users.filter((u) => u.status === "pending");
+  const tabBtn = (id, label, badge) => (
+    <button onClick={() => setTab(id)}
+      className={"px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap " + (tab === id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+      {label}{badge > 0 && <span className="ml-1.5 bg-red-500 text-white text-xs rounded-full px-1.5">{badge}</span>}
+    </button>
+  );
+
+  return (
+    <Modal title="관리자 패널" onClose={onClose} wide>
+      <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1">
+        {tabBtn("users", "사용자 관리", pendingUsers.length)}
+        {tabBtn("fields", "커스텀 필드")}
+        {tabBtn("excel", "엑셀 업로드")}
+      </div>
+
+      {tab === "users" && (
+        <div className="space-y-2 pb-2">
+          {users.length === 0 && <p className="text-sm text-slate-400 text-center py-6">사용자가 없습니다.</p>}
+          {users.map((u) => (
+            <div key={u.id} className={"border rounded-xl p-3 " + (u.status === "pending" ? "border-amber-300 bg-amber-50" : "bg-white")}>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="font-semibold text-slate-800">{u.full_name || "(이름 없음)"}</span>
+                <RoleBadge role={u.status === "pending" ? "pending" : u.role} />
+                {u.id === profile.id && <span className="text-xs text-slate-400">(나)</span>}
+              </div>
+              <p className="text-sm text-slate-500 mt-0.5">{u.email}{u.phone ? " · " + u.phone : ""}</p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {u.status === "pending" ? (
+                  <React.Fragment>
+                    <button className={btnPrimary + " !py-1.5"} onClick={() => approve(u, "viewer")}>열람자로 승인</button>
+                    <button className={btnGhost + " !py-1.5"} onClick={() => approve(u, "editor")}>편집자로 승인</button>
+                    <button className={btnDanger + " !py-1.5"} onClick={() => removeUser(u)}>거절</button>
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white" value={u.role} onChange={(e) => setRole(u, e.target.value)}>
+                      <option value="viewer">열람자</option>
+                      <option value="editor">편집자</option>
+                      <option value="admin">관리자</option>
+                    </select>
+                    <button className={btnDanger + " !py-1.5"} onClick={() => removeUser(u)}>삭제</button>
+                  </React.Fragment>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
-    </div>
+
+      {tab === "fields" && (
+        <div className="pb-2">
+          <p className="text-sm text-slate-500 mb-3">임대 정보에 추가로 기록할 항목을 정의합니다. (예: 주차, 특약사항)</p>
+          <div className="flex gap-2 mb-4">
+            <input className={inputCls} value={newField} onChange={(e) => setNewField(e.target.value)} placeholder="새 필드 이름" onKeyDown={(e) => e.key === "Enter" && addField()} />
+            <button className={btnPrimary + " shrink-0"} onClick={addField}>추가</button>
+          </div>
+          {msg && <p className="text-sm text-red-600 mb-2">{msg}</p>}
+          <div className="space-y-2">
+            {customFields.length === 0 && <p className="text-sm text-slate-400 text-center py-4">등록된 커스텀 필드가 없습니다.</p>}
+            {customFields.map((cf) => (
+              <div key={cf.id} className="flex items-center justify-between border rounded-xl px-3 py-2.5 bg-white">
+                <span className="font-medium text-slate-700">{cf.field_label}</span>
+                <button className="text-sm text-red-500 hover:text-red-700" onClick={() => removeField(cf)}>삭제</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "excel" && (
+        <div className="pb-2">
+          <div className="bg-slate-50 border rounded-xl p-3 mb-4 text-sm text-slate-600 leading-relaxed">
+            <p className="font-semibold text-slate-700 mb-1">엑셀 양식 (첫 행 = 열 제목)</p>
+            <p className="break-keep">건물명(주소) · 호수 · 임차인명 · 연락처 · 입주날짜 · 만기일 · 보증금(만원) · 월세(만원) · 관리비(만원) · 보증보험 · 메모</p>
+            <p className="mt-2 text-slate-400">※ 이미 등록된 것과 동일한 행(건물·호수·임차인·입주·만기 일치)은 자동으로 건너뜁니다.</p>
+          </div>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
+          <button className={btnPrimary + " w-full py-3"} disabled={importing} onClick={() => fileRef.current.click()}>
+            {importing ? "가져오는 중..." : "엑셀 파일 선택"}
+          </button>
+          {importResult && (
+            importResult.ok ? (
+              <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-800">
+                총 {importResult.total}행 중 <b>{importResult.added}건 추가</b>
+                {importResult.skipped > 0 && <span>, 중복 {importResult.skipped}건 건너뜀</span>}
+                {importResult.invalid > 0 && <span>, 필수값 누락 {importResult.invalid}건 제외</span>}
+              </div>
+            ) : (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">오류: {importResult.message}</div>
+            )
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
 
-// ── App ────────────────────────────────────────────────────
-function App(){
-  const[session,setSession]=useState(null);
-  const[loading,setLoading]=useState(true);
-  const[userRecord,setUserRecord]=useState(undefined);
-  const[buildings,setBuildings]=useState([]);
-  const[leases,setLeases]=useState([]);
-  const[customFields,setCustomFields]=useState([]);
-  const[users,setUsers]=useState([]);
-  const[page,setPage]=useState('dashboard');
-  const[selectedBuilding,setSelectedBuilding]=useState(null);
-  const[modal,setModal]=useState(null);
-  const[toasts,setToasts]=useState([]);
+/* ---------------- 메인 앱 ---------------- */
+function MainApp({ session, profile, onProfileChanged }) {
+  const [buildings, setBuildings] = useState([]);
+  const [leases, setLeases] = useState([]);
+  const [customFields, setCustomFields] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState({ name: "home" }); // home | building | all
+  const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const showToast=useCallback((msg,type='')=>{const id=Date.now();setToasts(t=>[...t,{id,msg,type}]);setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3000);},[]);
+  const canEdit = profile.role === "editor" || profile.role === "admin";
+  const isAdmin = profile.role === "admin";
 
-  useEffect(()=>{
-    sb.auth.getSession().then(({data:{session}})=>{setSession(session);if(!session)setLoading(false);});
-    const{data:{subscription}}=sb.auth.onAuthStateChange((_,s)=>{setSession(s);if(!s){setLoading(false);setUserRecord(undefined);}});
-    return()=>subscription.unsubscribe();
-  },[]);
-
-  useEffect(()=>{if(session)loadUserRecord();},[session]);
-
-  const loadUserRecord=async()=>{
-    setLoading(true);
-    const{data}=await sb.from('user_roles').select('*').eq('user_id',session.user.id).single();
-    if(!data){
-      const{data:byEmail}=await sb.from('user_roles').select('*').eq('email',session.user.email).single();
-      if(byEmail){await sb.from('user_roles').update({user_id:session.user.id}).eq('id',byEmail.id);setUserRecord({...byEmail,user_id:session.user.id});}
-      else setUserRecord(null);
-    }else setUserRecord(data);
+  const fetchAll = async () => {
+    const [b, l, f] = await Promise.all([
+      sb.from("buildings").select("*"),
+      sb.from("leases").select("*"),
+      sb.from("custom_fields").select("*").order("sort_order"),
+    ]);
+    setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
+    setLeases((l.data || []).sort(leaseSort));
+    setCustomFields(f.data || []);
     setLoading(false);
   };
+  useEffect(() => { fetchAll(); }, []);
 
-  const loadData=useCallback(async()=>{
-    const[b,l,cf,u]=await Promise.all([
-      sb.from('buildings').select('*').order('name'),
-      sb.from('leases').select('*'),
-      sb.from('custom_fields').select('*').order('sort_order'),
-      sb.from('user_roles').select('*').order('created_at'),
-    ]);
-    if(b.data)setBuildings(b.data);
-    if(l.data)setLeases(l.data);
-    if(cf.data)setCustomFields(cf.data);
-    if(u.data)setUsers(u.data);
-  },[]);
+  const leasesByBuilding = useMemo(() => {
+    const m = {};
+    leases.forEach((l) => { (m[l.building_id] = m[l.building_id] || []).push(l); });
+    return m;
+  }, [leases]);
 
-  useEffect(()=>{if(userRecord?.status==='active')loadData();},[userRecord]);
+  const q = search.trim().toLowerCase();
+  const filteredBuildings = useMemo(() => {
+    if (!q) return buildings;
+    return buildings.filter((b) => {
+      if (b.name.toLowerCase().includes(q)) return true;
+      return (leasesByBuilding[b.id] || []).some((l) =>
+        (l.room_number || "").toLowerCase().includes(q) ||
+        (canEdit && (l.tenant_name || "").toLowerCase().includes(q))
+      );
+    });
+  }, [q, buildings, leasesByBuilding, canEdit]);
 
-  const refresh=()=>{loadUserRecord();loadData();};
-  const logout=()=>sb.auth.signOut();
+  const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
 
-  const deleteBuilding=async id=>{
-    if(!confirm('건물을 삭제하면 해당 임대 정보도 모두 삭제됩니다.'))return;
-    const{error}=await sb.from('buildings').delete().eq('id',id);
-    if(error)showToast('삭제 실패','error');
-    else{showToast('건물 삭제됨');if(selectedBuilding?.id===id){setPage('dashboard');setSelectedBuilding(null);}loadData();}
-  };
-  const deleteLease=async id=>{
-    if(!confirm('임대 정보를 삭제하시겠습니까?'))return;
-    const{error}=await sb.from('leases').delete().eq('id',id);
-    if(error)showToast('삭제 실패','error');else{showToast('삭제됨');loadData();}
-  };
+  const openLease = (l) => canEdit && setModal({ type: "lease", lease: l });
 
-  if(loading)return <div className="loading-spinner"><div className="spinner"/><span>로딩 중...</span></div>;
-  if(!session)return <LoginPage/>;
-  if(userRecord===null)return <RegisterPage session={session} onDone={loadUserRecord}/>;
-  if(userRecord?.status==='pending')return <PendingPage userRecord={userRecord} onLogout={logout} onRefresh={loadUserRecord}/>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">불러오는 중...</div>;
 
-  const userRole=userRecord?.role;
-  const pendingCount=users.filter(u=>u.status==='pending').length;
-  const buildingLeases=selectedBuilding?leases.filter(l=>l.building_id===selectedBuilding.id):[];
+  const currentBuilding = view.name === "building" ? buildings.find((b) => b.id === view.buildingId) : null;
 
-  return(
-    <div>
-      <nav className="app-nav">
-        <div className="nav-logo">🏢 임대현황</div>
-        <div className="nav-right">
-          <button className="nav-user-btn" onClick={()=>setModal({type:'profile'})}>
-            ✎ {userRecord?.full_name||session.user.email}
+  return (
+    <div className="min-h-screen pb-10">
+      {/* 헤더 */}
+      <header className="bg-white border-b sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 flex items-center gap-2">
+          <button className="flex items-center gap-2 font-bold text-slate-800 text-lg shrink-0" onClick={() => { setView({ name: "home" }); setSearch(""); }}>
+            <span>🏢</span><span className="hidden xs:inline sm:inline">보담 임대관리</span>
           </button>
-          {page!=='dashboard'&&<button className="nav-btn nav-btn-ghost" onClick={()=>{setPage('dashboard');setSelectedBuilding(null);}}>대시보드</button>}
-          {userRole==='admin'&&(
-            <button className={`nav-btn ${page==='admin'?'nav-btn-primary':'nav-btn-ghost'}`} onClick={()=>setPage('admin')}>
-              ⚙️ 관리{pendingCount>0?` (${pendingCount})`:''}
-            </button>
+          <div className="flex-1" />
+          {canEdit && (
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+              onClick={() => setView({ name: "all" })}>전체보기</button>
           )}
-          <button className="nav-btn nav-btn-ghost" onClick={logout}>로그아웃</button>
+          {isAdmin && (
+            <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>관리자</button>
+          )}
+          <div className="relative">
+            <button className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 font-bold text-sm flex items-center justify-center" onClick={() => setMenuOpen((v) => !v)}>
+              {(profile.full_name || "?").slice(0, 1)}
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-11 bg-white border rounded-xl shadow-lg w-48 py-1 z-50" onMouseLeave={() => setMenuOpen(false)}>
+                <div className="px-4 py-2 border-b">
+                  <p className="font-semibold text-slate-800 text-sm truncate">{profile.full_name}</p>
+                  <RoleBadge role={profile.role} />
+                </div>
+                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); setModal({ type: "profile" }); }}>내 프로필</button>
+                <button className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50" onClick={() => sb.auth.signOut()}>로그아웃</button>
+              </div>
+            )}
+          </div>
         </div>
-      </nav>
-      <div className="main-content">
-        {page==='dashboard'&&<Dashboard buildings={buildings} leases={leases} customFields={customFields} userRole={userRole} onBuildingClick={b=>{setSelectedBuilding(b);setPage('detail');}} onAddBuilding={()=>setModal({type:'building_form'})} onEditBuilding={b=>setModal({type:'building_form',data:b})} onDeleteBuilding={deleteBuilding} onAddLease={b=>setModal({type:'lease_form',buildingId:b.id})}/>}
-        {page==='detail'&&selectedBuilding&&<BuildingDetailPage building={selectedBuilding} leases={buildingLeases} customFields={customFields} userRole={userRole} onBack={()=>{setPage('dashboard');setSelectedBuilding(null);}} onEdit={()=>setModal({type:'building_form',data:selectedBuilding})} onDelete={()=>deleteBuilding(selectedBuilding.id)} onAddLease={()=>setModal({type:'lease_form',buildingId:selectedBuilding.id})} onEditLease={l=>setModal({type:'lease_form',data:l})} onDeleteLease={deleteLease}/>}
-        {page==='admin'&&<AdminPage users={users} currentUserId={session.user.id} customFields={customFields} buildings={buildings} onRefresh={refresh} showToast={showToast}/>}
-      </div>
+      </header>
 
-      {modal?.type==='profile'&&(
-        <Modal title="내 정보 수정" onClose={()=>setModal(null)}>
-          <ProfileForm userRecord={userRecord} onSave={()=>{showToast('저장 완료','success');setModal(null);loadUserRecord();}} onClose={()=>setModal(null)}/>
-        </Modal>
+      <main className="max-w-6xl mx-auto px-3 sm:px-6 pt-4">
+        {/* 홈 */}
+        {view.name === "home" && (
+          <div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
+              <input className={inputCls + " sm:max-w-xs"} placeholder={canEdit ? "건물명 · 호수 · 임차인 검색" : "건물명 · 호수 검색"}
+                value={search} onChange={(e) => setSearch(e.target.value)} />
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <span>건물 {buildings.length}개 · 임대 {leases.length}건</span>
+                {urgentCount > 0 && <span className="bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full text-xs">30일 내 만기 {urgentCount}건</span>}
+              </div>
+              <div className="flex-1" />
+              {canEdit && (
+                <div className="flex gap-2">
+                  <button className={btnGhost} onClick={() => setModal({ type: "building", building: {} })}>+ 건물</button>
+                  <button className={btnPrimary} onClick={() => setModal({ type: "lease", lease: {} })} disabled={buildings.length === 0}>+ 임대 등록</button>
+                </div>
+              )}
+            </div>
+
+            {filteredBuildings.length === 0 && (
+              <p className="text-center text-slate-400 py-16">{buildings.length === 0 ? "등록된 건물이 없습니다. 엑셀 업로드 또는 + 건물 버튼으로 시작하세요." : "검색 결과가 없습니다."}</p>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredBuildings.map((b) => {
+                const bl = (leasesByBuilding[b.id] || []);
+                const top3 = bl.slice(0, 3);
+                return (
+                  <div key={b.id} className="bg-white rounded-2xl border shadow-sm p-4 cursor-pointer hover:shadow-md active:bg-slate-50 transition"
+                       onClick={() => setView({ name: "building", buildingId: b.id })}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h3 className="font-bold text-slate-800 break-keep leading-snug">{b.name}</h3>
+                        {b.address && <p className="text-xs text-slate-400 break-keep">{b.address}</p>}
+                      </div>
+                      <span className="text-xs text-slate-400 shrink-0 ml-2 mt-0.5">{bl.length}건</span>
+                    </div>
+                    {top3.length === 0 && <p className="text-sm text-slate-400">임대 정보 없음</p>}
+                    <div className="space-y-1.5">
+                      {top3.map((l) => {
+                        const d = ddayInfo(l.end_date);
+                        return (
+                          <div key={l.id} className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600 truncate">
+                              <b className="text-slate-800">{l.room_number}</b>
+                              {canEdit && l.tenant_name && <span className="ml-1.5">{l.tenant_name}</span>}
+                              <span className="ml-1.5 text-slate-400">{fmtDate(l.end_date)}</span>
+                            </span>
+                            <span className={"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ml-2 " + d.cls}>{d.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 건물 상세 */}
+        {view.name === "building" && currentBuilding && (
+          <div>
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={() => setView({ name: "home" })}>←</button>
+              <h2 className="font-bold text-xl text-slate-800 break-keep">{currentBuilding.name}</h2>
+              {currentBuilding.address && <span className="text-sm text-slate-400 break-keep">{currentBuilding.address}</span>}
+              <span className="text-sm text-slate-400">{(leasesByBuilding[currentBuilding.id] || []).length}건</span>
+              <div className="flex-1" />
+              {canEdit && (
+                <div className="flex gap-2">
+                  {isAdmin && <button className={btnGhost} onClick={() => setModal({ type: "building", building: currentBuilding })}>건물 수정</button>}
+                  <button className={btnPrimary} onClick={() => setModal({ type: "lease", lease: { building_id: currentBuilding.id } })}>+ 임대 등록</button>
+                </div>
+              )}
+            </div>
+            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} showBuilding={false} onRowClick={openLease} />
+          </div>
+        )}
+
+        {/* 전체보기 */}
+        {view.name === "all" && canEdit && (
+          <div>
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={() => setView({ name: "home" })}>←</button>
+              <h2 className="font-bold text-xl text-slate-800">전체 임대 목록</h2>
+              <span className="text-sm text-slate-400">만기일 순 · {leases.length}건</span>
+              <div className="flex-1" />
+              <input className={inputCls + " sm:max-w-xs"} placeholder="검색" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <LeaseList
+              leases={leases.filter((l) => {
+                if (!q) return true;
+                const b = buildings.find((x) => x.id === l.building_id);
+                return (b && b.name.toLowerCase().includes(q)) ||
+                  (l.room_number || "").toLowerCase().includes(q) ||
+                  (l.tenant_name || "").toLowerCase().includes(q);
+              })}
+              buildings={buildings} canEdit={canEdit} showBuilding={true} onRowClick={openLease} />
+          </div>
+        )}
+      </main>
+
+      {/* 모달들 */}
+      {modal && modal.type === "lease" && (
+        <LeaseModal lease={modal.lease} buildings={buildings} customFields={customFields} onClose={() => setModal(null)} onSaved={fetchAll} />
       )}
-      {modal?.type==='lease_form'&&<LeaseFormModal lease={modal.data} buildingId={modal.buildingId} buildings={buildings} customFields={customFields} onSave={()=>{showToast('저장 완료','success');setModal(null);loadData();}} onClose={()=>setModal(null)}/>}
-      {modal?.type==='building_form'&&<BuildingFormModal building={modal.data} onSave={()=>{showToast('저장 완료','success');setModal(null);loadData();}} onClose={()=>setModal(null)}/>}
-      <ToastContainer toasts={toasts}/>
+      {modal && modal.type === "building" && (
+        <BuildingModal building={modal.building} onClose={() => { setModal(null); if (modal.building.id) setView({ name: "home" }); }} onSaved={fetchAll} />
+      )}
+      {modal && modal.type === "admin" && isAdmin && (
+        <AdminPanel profile={profile} buildings={buildings} customFields={customFields} onClose={() => setModal(null)} onDataChanged={fetchAll} />
+      )}
+      {modal && modal.type === "profile" && (
+        <ProfileModal profile={profile} onClose={() => setModal(null)} onSaved={onProfileChanged} />
+      )}
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+/* ---------------- 루트 ---------------- */
+function App() {
+  const [session, setSession] = useState(undefined); // undefined=확인중, null=미로그인
+  const [profile, setProfile] = useState(undefined);
+
+  useEffect(() => {
+    if (!sb) return;
+    sb.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const loadProfile = async (uid) => {
+    let { data } = await sb.from("user_roles").select("*").eq("user_id", uid).maybeSingle();
+    if (!data && session) {
+      // 예전에 이메일로만 등록된 행 연결
+      const { data: byEmail } = await sb.from("user_roles").select("*").eq("email", session.user.email).maybeSingle();
+      if (byEmail) {
+        await sb.from("user_roles").update({ user_id: uid }).eq("id", byEmail.id);
+        data = { ...byEmail, user_id: uid };
+      }
+    }
+    setProfile(data || null);
+  };
+  useEffect(() => {
+    if (session) loadProfile(session.user.id); else setProfile(undefined);
+  }, [session && session.user.id]);
+
+  if (!IS_CONFIGURED) return <SetupScreen />;
+  if (session === undefined) return <div className="min-h-screen flex items-center justify-center text-slate-400">확인 중...</div>;
+  if (!session) return <LoginScreen />;
+  if (profile === undefined) return <div className="min-h-screen flex items-center justify-center text-slate-400">프로필 확인 중...</div>;
+  if (profile === null) return <RegisterScreen session={session} onDone={() => loadProfile(session.user.id)} />;
+  if (profile.status !== "active") return <PendingScreen profile={profile} />;
+  return <MainApp session={session} profile={profile} onProfileChanged={() => loadProfile(session.user.id)} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
