@@ -18,6 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <style>
   html { -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; }
@@ -101,6 +102,8 @@ function numOrNull(v) {
 function leaseSort(a, b) {
   // 계약완료된 매물은 우선순위가 낮으므로 항상 뒤로
   if (!!a.contract_done !== !!b.contract_done) return a.contract_done ? 1 : -1;
+  // 만기퇴실(급함)은 맨 앞으로
+  if (!!a.move_out !== !!b.move_out) return a.move_out ? -1 : 1;
   if (!a.end_date && !b.end_date) return 0;
   if (!a.end_date) return 1;
   if (!b.end_date) return -1;
@@ -111,6 +114,40 @@ function leaseSort(a, b) {
    - 완전 중복: 건물+호수+임차인+입주일+만기일이 모두 동일 → 재업로드 등으로 생긴 사본
    - 의심 중복: 건물+호수+보증금+월세가 동일하지만 나머지가 다름 → 사람이 확인 필요
    ※ 같은 호수라도 보증금/월세 금액이 다르면(전세·월세 병행 등) 중복으로 잡지 않음 */
+/* 계약서 OCR 텍스트에서 정보 추출 (보조용 — 승인 시 사람이 확인) */
+function parseMoneyToMan(s) {
+  s = String(s || "").replace(/\s/g, "");
+  let man = 0, matched = false;
+  const eok = s.match(/([0-9,]+)억/);
+  if (eok) { man += parseInt(eok[1].replace(/,/g, ""), 10) * 10000; matched = true; s = s.split("억")[1] || ""; }
+  const manM = s.match(/([0-9,]+)만/);
+  if (manM) { man += parseInt(manM[1].replace(/,/g, ""), 10); matched = true; }
+  if (!matched) {
+    const n = parseInt(s.replace(/[^0-9]/g, ""), 10);
+    if (!n) return null;
+    man = n >= 1000000 ? Math.round(n / 10000) : n; // 원 단위 큰 숫자는 만원 환산
+  }
+  return man || null;
+}
+function parseContractText(t) {
+  const out = {};
+  const dates = [...t.matchAll(/(20\d{2})\s*[년.\-\/]\s*(\d{1,2})\s*[월.\-\/]\s*(\d{1,2})/g)]
+    .map((m) => `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}`);
+  const uniq = [...new Set(dates)].sort();
+  if (uniq.length >= 2) { out.start_date = uniq[0]; out.end_date = uniq[uniq.length - 1]; }
+  else if (uniq.length === 1) { out.end_date = uniq[0]; }
+  const money = (kw) => {
+    const m = t.match(new RegExp(kw + "[^0-9억]{0,15}([0-9,억\\s]+(?:만)?)"));
+    return m ? parseMoneyToMan(m[1]) : null;
+  };
+  out.deposit = money("보증금");
+  out.rent = money("월세") ?? money("차임");
+  out.management_fee = money("관리비");
+  const ph = t.match(/01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/);
+  if (ph) out.tenant_phone = ph[0].replace(/[.\s]/g, "-");
+  return out;
+}
+
 function exactKey(l) {
   return [l.building_id, (l.room_number || "").trim(), (l.tenant_name || "").trim(), l.start_date || "", l.end_date || ""].join("|");
 }
@@ -273,6 +310,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
     extra: lease.custom_data || {},
     contract_done: !!lease.contract_done,
     contract_by: lease.contract_done_by || "",
+    move_out: !!lease.move_out,
   });
   const isAdminUser = me && me.role === "admin";
   const [busy, setBusy] = useState(false);
@@ -297,6 +335,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
       door_code: f.door_code.trim() || null,
       memo: f.memo.trim() || null,
       custom_data: f.extra,
+      move_out: f.move_out,
     };
     // 계약완료 처리: 새로 체크하면 완료자·일시 기록, 해제하면 초기화
     // 관리자는 완료자 이름을 직접 지정/수정 가능
@@ -358,6 +397,11 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
         </Field>
         <Field label="호실 비밀번호"><input className={inputCls} value={f.door_code} onChange={(e) => set("door_code", e.target.value)} placeholder="예: 1234*" /></Field>
       </div>
+      <label className="flex items-center gap-2.5 mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-3 cursor-pointer">
+        <input type="checkbox" className="w-5 h-5 accent-red-600" checked={f.move_out} onChange={(e) => set("move_out", e.target.checked)} />
+        <span className="text-sm font-bold text-red-700">🚨 만기퇴실 (우선 처리)</span>
+        <span className="text-xs text-red-500 ml-auto break-keep">목록 맨 위 + 열람자에게 항상 표시</span>
+      </label>
       <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3">
         <label className="flex items-center gap-2.5 cursor-pointer">
           <input type="checkbox" className="w-5 h-5 accent-emerald-600" checked={f.contract_done} onChange={(e) => set("contract_done", e.target.checked)} />
@@ -406,6 +450,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
 function EventTag() {
   return <span className="text-[10px] font-bold bg-rose-100 text-rose-600 border border-rose-200 rounded px-1 py-px mr-1 align-middle">이벤트</span>;
 }
+function MoveOutTag() {
+  return <span className="text-[10px] font-bold bg-red-600 text-white rounded px-1 py-px mr-1 align-middle">만기퇴실</span>;
+}
 function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, onMarkDone, onCancelDone }) {
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
   const canCancel = (l) => canEdit || (me && l.contract_done_by === (me.full_name || me.email));
@@ -438,7 +485,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <tr key={l.id} className="border-b last:border-0 hover:bg-blue-50 cursor-pointer"
                     onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
-                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.event_id && <EventTag />}{l.room_number}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.event_id && <EventTag />}{l.room_number}</td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.tenant_phone ? (
@@ -482,6 +529,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                  onClick={() => onRowClick(l)}>
               <div className="flex items-center justify-between mb-1">
                 <div className="font-bold text-slate-800">
+                  {l.move_out && <MoveOutTag />}
                   {l.event_id && <EventTag />}
                   {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
                   {l.room_number}
@@ -674,7 +722,7 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
 }
 
 /* ---------------- 매물 상세 팝업 (열람용) ---------------- */
-function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, onClose, onEdit, onMarkDone, onCancelDone }) {
+function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, onClose, onEdit, onMarkDone, onCancelDone, onUpload }) {
   const mayCancel = lease.contract_done && (canEdit || (me && lease.contract_done_by === (me.full_name || me.email)));
   const b = buildings.find((x) => x.id === lease.building_id) || {};
   const ev = events.find((e) => e.id === lease.event_id);
@@ -689,6 +737,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
     <Modal title={`${b.name || ""} ${lease.room_number || ""}`} onClose={onClose}>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span>
+        {lease.move_out && <span className="text-xs font-bold bg-red-600 text-white rounded-full px-2 py-0.5">🚨 만기퇴실</span>}
         {ev && <span className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2 py-0.5 font-semibold">🎁 {ev.title}</span>}
         {lease.contract_done && <span className="text-xs text-emerald-700 font-semibold">🎉 {lease.contract_done_by} 계약완료</span>}
       </div>
@@ -720,6 +769,8 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
         <Row k="메모" v={lease.memo} />
       </div>
+      <button className="w-full mb-2 bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-lg py-2.5"
+        onClick={() => onUpload(lease)}>📄 계약서 사진 업로드 (자동 인식)</button>
       <div className="flex gap-2 pb-2">
         {!lease.contract_done && (
           <button className="flex-1 bg-emerald-50 border border-emerald-300 text-emerald-700 font-bold rounded-lg py-2.5"
@@ -732,6 +783,196 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         {canEdit && <button className={btnPrimary + " flex-1"} onClick={() => onEdit(lease)}>수정</button>}
         <button className={btnGhost} onClick={onClose}>닫기</button>
       </div>
+    </Modal>
+  );
+}
+
+/* ---------------- 계약서 사진 업로드 (OCR 자동 추출) ---------------- */
+function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
+  const b = buildings.find((x) => x.id === lease.building_id) || {};
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [ocrState, setOcrState] = useState("");   // "", "진행중 xx%", "완료", "실패"
+  const [extracted, setExtracted] = useState({});
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const fileRef = useRef(null);
+
+  const handleFile = async (f2) => {
+    if (!f2) return;
+    setFile(f2);
+    setPreview(URL.createObjectURL(f2));
+    setExtracted({});
+    setOcrState("스캔 중... 0%");
+    try {
+      const result = await Tesseract.recognize(f2, "kor+eng", {
+        logger: (m) => { if (m.status === "recognizing text") setOcrState(`스캔 중... ${Math.round(m.progress * 100)}%`); },
+      });
+      const parsed = parseContractText(result.data.text || "");
+      setExtracted(parsed);
+      setOcrState(Object.keys(parsed).length ? "스캔 완료 — 아래 추출 결과는 승인 시 수정 가능합니다" : "스캔 완료 — 자동 인식된 항목이 없습니다 (승인자가 직접 입력)");
+    } catch (e2) {
+      setOcrState("자동 스캔 실패 — 사진만 제출됩니다 (승인자가 직접 입력)");
+    }
+  };
+
+  const submit = async () => {
+    if (!file) { setErr("계약서 사진을 선택해주세요."); return; }
+    setBusy(true); setErr("");
+    try {
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const path = `${lease.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await sb.storage.from("contracts").upload(path, file);
+      if (upErr) throw upErr;
+      const { error } = await sb.from("contract_submissions").insert({
+        lease_id: lease.id, file_path: path, extracted, note: note.trim() || null,
+        submitted_by: (me && (me.full_name || me.email)) || null, submitted_user: me.user_id,
+      });
+      if (error) throw error;
+      alert("제출 완료! 편집자가 승인하면 매물 정보에 반영됩니다.");
+      onSaved(); onClose();
+    } catch (e2) { setErr("제출 실패: " + e2.message); }
+    finally { setBusy(false); }
+  };
+
+  const exRow = (k, label, isMoney) => extracted[k] == null ? null : (
+    <div key={k} className="flex justify-between text-sm py-1 border-b border-slate-100 last:border-0">
+      <span className="text-slate-400">{label}</span>
+      <span className="font-semibold text-slate-800">{isMoney ? fmtMoney(extracted[k]) + "만원" : extracted[k]}</span>
+    </div>
+  );
+
+  return (
+    <Modal title={`📄 계약서 업로드 — ${b.name || ""} ${lease.room_number || ""}`} onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3 break-keep">계약서를 사진으로 찍어 올리면 날짜·금액을 자동 인식합니다. <b>편집자가 승인해야</b> 매물 정보에 반영됩니다.</p>
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
+      <button className={btnGhost + " w-full py-3 mb-3"} onClick={() => fileRef.current.click()}>
+        {file ? "📷 다른 사진 선택" : "📷 사진 촬영 / 선택"}
+      </button>
+      {preview && <img src={preview} className="w-full rounded-xl border mb-2 max-h-72 object-contain bg-slate-50" />}
+      {ocrState && <p className="text-xs text-blue-600 font-medium mb-2">{ocrState}</p>}
+      {Object.keys(extracted).length > 0 && (
+        <div className="bg-slate-50 rounded-xl px-3 py-2 mb-3">
+          {exRow("start_date", "입주날짜(추정)")}
+          {exRow("end_date", "만기일(추정)")}
+          {exRow("deposit", "보증금(추정)", true)}
+          {exRow("rent", "월세(추정)", true)}
+          {exRow("management_fee", "관리비(추정)", true)}
+          {exRow("tenant_phone", "연락처(추정)")}
+        </div>
+      )}
+      <Field label="메모 (선택)"><input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="승인자에게 전달할 내용" /></Field>
+      {err && <p className="text-sm text-red-600 mb-2">{err}</p>}
+      <div className="flex gap-2 pb-2">
+        <button className={btnPrimary + " flex-1 py-3"} onClick={submit} disabled={busy || !file}>{busy ? "제출 중..." : "제출 (승인 요청)"}</button>
+        <button className={btnGhost} onClick={onClose}>취소</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- 계약서 승인 (편집자 이상) ---------------- */
+function SubmissionReviewModal({ submissions, leases, buildings, me, onClose, onSaved }) {
+  const pend = submissions.filter((s) => s.status === "pending");
+  const [sel, setSel] = useState(null); // 선택된 submission
+  const [imgUrl, setImgUrl] = useState(null);
+  const [f, setF] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const bName = (id) => (buildings.find((x) => x.id === id) || {}).name || "";
+  const leaseOf = (s) => leases.find((l) => l.id === s.lease_id);
+
+  const open = async (s) => {
+    setSel(s); setErr(""); setImgUrl(null);
+    const ex = s.extracted || {};
+    setF({
+      tenant_name: ex.tenant_name || "", tenant_phone: ex.tenant_phone || "",
+      start_date: ex.start_date || "", end_date: ex.end_date || "",
+      deposit: ex.deposit ?? "", rent: ex.rent ?? "", management_fee: ex.management_fee ?? "",
+    });
+    const { data } = await sb.storage.from("contracts").createSignedUrl(s.file_path, 3600);
+    if (data) setImgUrl(data.signedUrl);
+  };
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const approve = async () => {
+    const l = leaseOf(sel);
+    if (!l) { setErr("연결된 매물을 찾을 수 없습니다."); return; }
+    setBusy(true); setErr("");
+    try {
+      const payload = {};
+      if (f.tenant_name.trim()) payload.tenant_name = f.tenant_name.trim();
+      if (f.tenant_phone.trim()) payload.tenant_phone = f.tenant_phone.trim();
+      if (f.start_date) payload.start_date = f.start_date;
+      if (f.end_date) payload.end_date = f.end_date;
+      if (f.deposit !== "") payload.deposit = numOrNull(f.deposit);
+      if (f.rent !== "") payload.monthly_rent = numOrNull(f.rent);
+      if (f.management_fee !== "") payload.management_fee = numOrNull(f.management_fee);
+      if (Object.keys(payload).length) {
+        const { error } = await sb.from("leases").update(payload).eq("id", l.id);
+        if (error) throw error;
+      }
+      const { error: e2 } = await sb.from("contract_submissions").update({
+        status: "approved", reviewed_by: me.full_name || me.email, reviewed_at: new Date().toISOString(),
+      }).eq("id", sel.id);
+      if (e2) throw e2;
+      setSel(null); onSaved();
+    } catch (e3) { setErr("승인 실패: " + e3.message); }
+    finally { setBusy(false); }
+  };
+  const reject = async () => {
+    if (!confirm("이 계약서 제출을 거절할까요? 매물 정보는 변경되지 않습니다.")) return;
+    setBusy(true);
+    await sb.from("contract_submissions").update({
+      status: "rejected", reviewed_by: me.full_name || me.email, reviewed_at: new Date().toISOString(),
+    }).eq("id", sel.id);
+    setBusy(false); setSel(null); onSaved();
+  };
+
+  return (
+    <Modal title="📄 계약서 승인" onClose={onClose} wide>
+      {!sel ? (
+        <div className="space-y-2 pb-2">
+          {pend.length === 0 && <p className="text-sm text-slate-400 text-center py-8">승인 대기 중인 계약서가 없습니다.</p>}
+          {pend.map((s) => {
+            const l = leaseOf(s);
+            return (
+              <button key={s.id} onClick={() => open(s)}
+                className="w-full text-left border rounded-xl px-3 py-3 bg-white hover:bg-blue-50 flex items-center justify-between gap-2">
+                <span className="min-w-0">
+                  <b className="text-slate-800">{l ? `${bName(l.building_id)} ${l.room_number}` : "(매물 삭제됨)"}</b>
+                  <span className="text-sm text-slate-500 ml-2">{s.submitted_by} 제출</span>
+                  {s.note && <span className="block text-xs text-slate-400 truncate">메모: {s.note}</span>}
+                </span>
+                <span className="text-xs text-slate-400 shrink-0">{String(s.created_at).slice(0, 10)}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="pb-2">
+          <button className="text-sm text-slate-400 mb-2" onClick={() => setSel(null)}>← 목록으로</button>
+          <p className="font-bold text-slate-800 mb-2">{(() => { const l = leaseOf(sel); return l ? `${bName(l.building_id)} ${l.room_number}` : ""; })()} <span className="font-medium text-sm text-slate-500">— {sel.submitted_by} 제출</span></p>
+          {imgUrl ? <img src={imgUrl} className="w-full rounded-xl border mb-3 max-h-96 object-contain bg-slate-50" /> : <p className="text-sm text-slate-400 mb-3">사진 불러오는 중...</p>}
+          <p className="text-xs text-amber-600 font-semibold mb-2">⚠️ 자동 인식 값입니다. 사진과 대조해 수정한 뒤 승인하세요. 빈 칸은 기존 값을 유지합니다.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+            <Field label="임차인명"><input className={inputCls} value={f.tenant_name} onChange={(e) => set("tenant_name", e.target.value)} /></Field>
+            <Field label="연락처"><input className={inputCls} value={f.tenant_phone} onChange={(e) => set("tenant_phone", e.target.value)} inputMode="tel" /></Field>
+            <Field label="입주날짜"><input type="date" className={inputCls} value={f.start_date} onChange={(e) => set("start_date", e.target.value)} /></Field>
+            <Field label="만기일"><input type="date" className={inputCls} value={f.end_date} onChange={(e) => set("end_date", e.target.value)} /></Field>
+            <Field label="보증금 (만원)"><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
+            <Field label="월세 (만원)"><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
+            <Field label="관리비 (만원)"><input className={inputCls} value={f.management_fee} onChange={(e) => set("management_fee", e.target.value)} inputMode="numeric" /></Field>
+          </div>
+          {sel.note && <p className="text-sm text-slate-500 mb-2">제출자 메모: {sel.note}</p>}
+          {err && <p className="text-sm text-red-600 mb-2">{err}</p>}
+          <div className="flex gap-2 pt-1">
+            <button className={btnPrimary + " flex-1 py-3"} onClick={approve} disabled={busy}>{busy ? "처리 중..." : "✅ 승인 (매물에 반영)"}</button>
+            <button className={btnDanger} onClick={reject} disabled={busy}>거절</button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -1129,6 +1370,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [customFields, setCustomFields] = useState([]);
   const [events, setEvents] = useState([]);
   const [reactions, setReactions] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all
   const [search, setSearch] = useState("");
@@ -1140,18 +1382,20 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
-    const [b, l, f, e, r] = await Promise.all([
+    const [b, l, f, e, r, cs] = await Promise.all([
       sb.from("buildings").select("*"),
       sb.from("leases").select("*"),
       sb.from("custom_fields").select("*").order("sort_order"),
       sb.from("events").select("*").order("created_at", { ascending: false }),
       sb.from("celebration_reactions").select("*"),
+      sb.from("contract_submissions").select("*").order("created_at", { ascending: false }),
     ]);
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
     setLeases((l.data || []).sort(leaseSort));
     setCustomFields(f.data || []);
     setEvents(e.data || []);
     setReactions(r.data || []);
+    setSubmissions(cs.data || []);
     setLoading(false);
   };
 
@@ -1344,13 +1588,17 @@ function MainApp({ session, profile, onProfileChanged }) {
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
               <input className={inputCls + " sm:max-w-xs"} placeholder={canEdit ? "건물명 · 호수 · 임차인 검색" : "건물명 · 호수 검색"}
                 value={search} onChange={(e) => setSearch(e.target.value)} />
-              <div className="flex items-center gap-2 text-sm text-slate-500">
+              <div className="flex items-center gap-2 text-sm text-slate-500 flex-wrap">
                 <span>건물 {buildings.length}개 · 임대 {leases.length}건</span>
+                {!canEdit && <span className="text-xs text-slate-400">(만기 6개월 이내 매물만 표시)</span>}
                 {urgentCount > 0 && <span className="bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full text-xs">30일 내 만기 {urgentCount}건</span>}
               </div>
               <div className="flex-1" />
               {canEdit && (
                 <div className="flex gap-2 flex-wrap">
+                  <button className={btnGhost + (submissions.filter((s) => s.status === "pending").length > 0 ? " !border-emerald-400 !text-emerald-700" : "")} onClick={() => setModal({ type: "subs" })}>
+                    계약승인{submissions.filter((s) => s.status === "pending").length > 0 && <span className="ml-1.5 bg-emerald-500 text-white text-xs rounded-full px-1.5 py-0.5">{submissions.filter((s) => s.status === "pending").length}</span>}
+                  </button>
                   <button className={btnGhost + (dupCount > 0 ? " !border-amber-400 !text-amber-700" : "")} onClick={() => setModal({ type: "dups" })}>
                     중복 검사{dupCount > 0 && <span className="ml-1.5 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5">{dupCount}</span>}
                   </button>
@@ -1385,6 +1633,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                         return (
                           <div key={l.id} className="flex items-center justify-between text-sm">
                             <span className="text-slate-600 truncate">
+                              {l.move_out && <MoveOutTag />}
                               {l.event_id && <EventTag />}
                               <b className="text-slate-800">{l.room_number}</b>
                               {l.contract_done && <span className="ml-1">🎉</span>}
@@ -1516,7 +1765,14 @@ function MainApp({ session, profile, onProfileChanged }) {
       {modal && modal.type === "detail" && (
         <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit} me={profile}
           onClose={() => setModal(null)} onMarkDone={markDone} onCancelDone={cancelDone}
-          onEdit={(l) => setModal({ type: "lease", lease: l })} />
+          onEdit={(l) => setModal({ type: "lease", lease: l })}
+          onUpload={(l) => setModal({ type: "upload", lease: l })} />
+      )}
+      {modal && modal.type === "upload" && (
+        <ContractUploadModal lease={modal.lease} buildings={buildings} me={profile} onClose={() => setModal(null)} onSaved={fetchAll} />
+      )}
+      {modal && modal.type === "subs" && canEdit && (
+        <SubmissionReviewModal submissions={submissions} leases={leases} buildings={buildings} me={profile} onClose={() => setModal(null)} onSaved={fetchAll} />
       )}
       {modal && modal.type === "event" && canEdit && (
         <EventModal event={modal.event} leases={leases} buildings={buildings} me={profile} onClose={() => setModal(null)} onSaved={fetchAll} />
