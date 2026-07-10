@@ -100,10 +100,8 @@ function numOrNull(v) {
   return isNaN(n) ? null : n;
 }
 function leaseSort(a, b) {
-  // 계약완료된 매물은 우선순위가 낮으므로 항상 뒤로
+  // 계약완료된 매물은 우선순위가 낮으므로 항상 뒤로 (그 외에는 만기 임박순)
   if (!!a.contract_done !== !!b.contract_done) return a.contract_done ? 1 : -1;
-  // 만기퇴실(급함)은 맨 앞으로
-  if (!!a.move_out !== !!b.move_out) return a.move_out ? -1 : 1;
   if (!a.end_date && !b.end_date) return 0;
   if (!a.end_date) return 1;
   if (!b.end_date) return -1;
