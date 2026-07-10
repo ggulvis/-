@@ -228,7 +228,8 @@ function RegisterScreen({ session, onDone }) {
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
         <h1 className="text-xl font-bold text-slate-800 mb-1">사용자 등록</h1>
         <p className="text-sm text-slate-500 mb-6">처음 방문하셨네요. 정보를 입력하면 관리자 승인 후 이용할 수 있습니다.</p>
-        <Field label="이름 *"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" /></Field>
+        <Field label={"이름 * (예: 보담 홍길동)"}><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="보담 홍길동" /></Field>
+        <p className="text-xs text-slate-400 -mt-1 mb-3">회사명과 이름을 함께 적어주세요. 계약 축하·실적에 이 이름이 표시됩니다.</p>
         <Field label="연락처 *"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" inputMode="tel" /></Field>
         {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
         <button className={btnPrimary + " w-full py-3"} onClick={submit} disabled={busy}>{busy ? "등록 중..." : "등록 요청"}</button>
@@ -582,7 +583,7 @@ function ProfileModal({ profile, onClose, onSaved }) {
         <p>{profile.email}</p>
         <p className="mt-1">권한: <RoleBadge role={profile.role} /></p>
       </div>
-      <Field label="이름"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label={"이름 (예: 보담 홍길동)"}><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="보담 홍길동" /></Field>
       <Field label="연락처"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></Field>
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
       <div className="flex gap-2 pb-2">
@@ -691,6 +692,16 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         {ev && <span className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2 py-0.5 font-semibold">🎁 {ev.title}</span>}
         {lease.contract_done && <span className="text-xs text-emerald-700 font-semibold">🎉 {lease.contract_done_by} 계약완료</span>}
       </div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-center">
+          <p className="text-[11px] text-amber-700 font-semibold mb-0.5">🔑 공동현관</p>
+          <p className="font-bold text-slate-800 text-lg leading-tight">{b.entrance_code || <span className="text-slate-300 text-sm font-medium">미입력</span>}</p>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-center">
+          <p className="text-[11px] text-amber-700 font-semibold mb-0.5">🚪 호실 비밀번호</p>
+          <p className="font-bold text-slate-800 text-lg leading-tight">{lease.door_code || <span className="text-slate-300 text-sm font-medium">미입력</span>}</p>
+        </div>
+      </div>
       {lease.tenant_phone && (
         <a href={telHref(lease.tenant_phone)}
            className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white font-bold rounded-xl py-3 mb-3 active:bg-blue-700">
@@ -706,8 +717,6 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         <Row k="월세" v={lease.monthly_rent != null ? fmtMoney(lease.monthly_rent) + "만원" : null} />
         <Row k="관리비" v={lease.management_fee != null ? fmtMoney(lease.management_fee) + "만원" : null} />
         <Row k="보증보험" v={lease.insurance == null ? null : fmtIns(lease.insurance)} />
-        <Row k="공동현관" v={b.entrance_code} />
-        <Row k="호실 비밀번호" v={lease.door_code} />
         {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
         <Row k="메모" v={lease.memo} />
       </div>
@@ -856,6 +865,13 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
     if (!confirm(`${u.full_name || u.email} 사용자를 삭제할까요?`)) return;
     await sb.from("user_roles").delete().eq("id", u.id);
     loadUsers();
+  };
+  const renameUser = async (u) => {
+    const nn = prompt(`${u.full_name || u.email}의 새 이름 (예: 보담 홍길동)`, u.full_name || "");
+    if (nn === null) return;
+    if (!nn.trim()) { alert("이름을 입력하세요."); return; }
+    const { error } = await sb.from("user_roles").update({ full_name: nn.trim() }).eq("id", u.id);
+    if (error) alert("변경 실패: " + error.message); else loadUsers();
   };
   const addField = async () => {
     if (!newField.trim()) return;
@@ -1046,6 +1062,7 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
                       <option value="editor">편집자</option>
                       <option value="admin">관리자</option>
                     </select>
+                    <button className={btnGhost + " !py-1.5"} onClick={() => renameUser(u)}>이름수정</button>
                     <button className={btnDanger + " !py-1.5"} onClick={() => removeUser(u)}>삭제</button>
                   </React.Fragment>
                 )}
@@ -1163,6 +1180,22 @@ function MainApp({ session, profile, onProfileChanged }) {
     else fetchAll();
   };
   useEffect(() => { fetchAll(); }, []);
+
+  // 자동 새로고침: 화면 전환 시, 앱으로 돌아올 때, 1분마다
+  useEffect(() => {
+    if (!loading) fetchAll();
+  }, [view.name, view.buildingId]);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") fetchAll(); };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      clearInterval(timer);
+    };
+  }, []);
 
   const leasesByBuilding = useMemo(() => {
     const m = {};
