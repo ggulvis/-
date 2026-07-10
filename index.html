@@ -99,6 +99,8 @@ function numOrNull(v) {
   return isNaN(n) ? null : n;
 }
 function leaseSort(a, b) {
+  // 계약완료된 매물은 우선순위가 낮으므로 항상 뒤로
+  if (!!a.contract_done !== !!b.contract_done) return a.contract_done ? 1 : -1;
   if (!a.end_date && !b.end_date) return 0;
   if (!a.end_date) return 1;
   if (!b.end_date) return -1;
@@ -403,8 +405,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
 function EventTag() {
   return <span className="text-[10px] font-bold bg-rose-100 text-rose-600 border border-rose-200 rounded px-1 py-px mr-1 align-middle">이벤트</span>;
 }
-function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick, onMarkDone }) {
+function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, onMarkDone, onCancelDone }) {
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
+  const canCancel = (l) => canEdit || (me && l.contract_done_by === (me.full_name || me.email));
   if (leases.length === 0) return <p className="text-center text-slate-400 text-sm py-10">임대 정보가 없습니다.</p>;
   return (
     <div>
@@ -451,7 +454,13 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick, onMar
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtIns(l.insurance)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.contract_done ? (
-                      <span className="text-xs text-emerald-700 font-semibold" title={(l.contract_done_by || "") + " · " + String(l.contract_done_at || "").slice(0, 10)}>🎉 완료</span>
+                      <React.Fragment>
+                        <span className="text-xs text-emerald-700 font-semibold" title={(l.contract_done_by || "") + " · " + String(l.contract_done_at || "").slice(0, 10)}>🎉 완료</span>
+                        {canCancel(l) && (
+                          <button className="ml-1.5 text-[11px] text-slate-400 underline hover:text-red-500"
+                            onClick={(e) => { e.stopPropagation(); onCancelDone(l); }}>취소</button>
+                        )}
+                      </React.Fragment>
                     ) : (
                       <button className="text-xs font-semibold bg-emerald-50 border border-emerald-300 text-emerald-700 rounded-full px-2 py-0.5 hover:bg-emerald-100"
                         onClick={(e) => { e.stopPropagation(); onMarkDone(l); }}>계약완료</button>
@@ -493,7 +502,13 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick, onMar
                   </a>
                 )}
                 {l.contract_done ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-semibold">🎉 {l.contract_done_by} 계약완료</span>
+                  <React.Fragment>
+                    <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-semibold">🎉 {l.contract_done_by} 계약완료</span>
+                    {canCancel(l) && (
+                      <button onClick={(e) => { e.stopPropagation(); onCancelDone(l); }}
+                        className="text-xs text-slate-400 underline active:text-red-500">취소</button>
+                    )}
+                  </React.Fragment>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); onMarkDone(l); }}
                     className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-emerald-100">
@@ -658,7 +673,8 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
 }
 
 /* ---------------- 매물 상세 팝업 (열람용) ---------------- */
-function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, onClose, onEdit, onMarkDone }) {
+function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, onClose, onEdit, onMarkDone, onCancelDone }) {
+  const mayCancel = lease.contract_done && (canEdit || (me && lease.contract_done_by === (me.full_name || me.email)));
   const b = buildings.find((x) => x.id === lease.building_id) || {};
   const ev = events.find((e) => e.id === lease.event_id);
   const d = ddayInfo(lease.end_date);
@@ -699,6 +715,10 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, onC
         {!lease.contract_done && (
           <button className="flex-1 bg-emerald-50 border border-emerald-300 text-emerald-700 font-bold rounded-lg py-2.5"
             onClick={() => { onClose(); onMarkDone(lease); }}>🎉 계약완료</button>
+        )}
+        {mayCancel && (
+          <button className="flex-1 bg-slate-50 border border-slate-300 text-slate-500 font-bold rounded-lg py-2.5"
+            onClick={() => { onClose(); onCancelDone(lease); }}>계약취소</button>
         )}
         {canEdit && <button className={btnPrimary + " flex-1"} onClick={() => onEdit(lease)}>수정</button>}
         <button className={btnGhost} onClick={onClose}>닫기</button>
@@ -1114,6 +1134,13 @@ function MainApp({ session, profile, onProfileChanged }) {
     if (error) alert("처리 실패: " + error.message);
     else fetchAll();
   };
+  const cancelDone = async (l) => {
+    const bld = buildings.find((x) => x.id === l.building_id);
+    if (!confirm(`${(bld && bld.name) || ""} ${l.room_number}의 계약완료를 취소할까요?\n축하 코너와 실적 기록에서도 제거됩니다.`)) return;
+    const { error } = await sb.rpc("set_contract_done", { p_lease: l.id, p_done: false });
+    if (error) alert("처리 실패: " + error.message);
+    else fetchAll();
+  };
   useEffect(() => { fetchAll(); }, []);
 
   const leasesByBuilding = useMemo(() => {
@@ -1335,7 +1362,13 @@ function MainApp({ session, profile, onProfileChanged }) {
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {evLeases.map((l) => {
                             const b = buildings.find((x) => x.id === l.building_id);
-                            return (
+                            return l.contract_done ? (
+                              <button key={l.id} onClick={() => setModal({ type: "detail", lease: l })}
+                                className="text-xs bg-slate-50 border border-emerald-200 text-slate-400 rounded-full px-2.5 py-1 font-medium">
+                                <span className="line-through">{(b && b.name) || ""} {l.room_number}</span>
+                                <span className="ml-1 text-emerald-600 font-bold no-underline">🎉 성공</span>
+                              </button>
+                            ) : (
                               <button key={l.id} onClick={() => setModal({ type: "detail", lease: l })}
                                 className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2.5 py-1 font-medium hover:bg-rose-100 active:bg-rose-100">
                                 {(b && b.name) || ""} {l.room_number} ›
@@ -1369,7 +1402,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                 </div>
               )}
             </div>
-            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} showBuilding={false} onRowClick={openLease} onMarkDone={markDone} />
+            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} me={profile} showBuilding={false} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
           </div>
         )}
 
@@ -1391,7 +1424,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                   (l.room_number || "").toLowerCase().includes(q) ||
                   (l.tenant_name || "").toLowerCase().includes(q);
               })}
-              buildings={buildings} canEdit={canEdit} showBuilding={true} onRowClick={openLease} onMarkDone={markDone} />
+              buildings={buildings} canEdit={canEdit} me={profile} showBuilding={true} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
           </div>
         )}
       </main>
@@ -1404,8 +1437,8 @@ function MainApp({ session, profile, onProfileChanged }) {
         <BuildingModal building={modal.building} onClose={() => { setModal(null); if (modal.building.id) setView({ name: "home" }); }} onSaved={fetchAll} />
       )}
       {modal && modal.type === "detail" && (
-        <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit}
-          onClose={() => setModal(null)} onMarkDone={markDone}
+        <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit} me={profile}
+          onClose={() => setModal(null)} onMarkDone={markDone} onCancelDone={cancelDone}
           onEdit={(l) => setModal({ type: "lease", lease: l })} />
       )}
       {modal && modal.type === "event" && canEdit && (
