@@ -391,7 +391,10 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
 }
 
 /* ---------------- 임대 목록 (테이블/카드 반응형) ---------------- */
-function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
+function EventTag() {
+  return <span className="text-[10px] font-bold bg-rose-100 text-rose-600 border border-rose-200 rounded px-1 py-px mr-1 align-middle">이벤트</span>;
+}
+function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick, onMarkDone }) {
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
   if (leases.length === 0) return <p className="text-center text-slate-400 text-sm py-10">임대 정보가 없습니다.</p>;
   return (
@@ -412,6 +415,7 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
               <th className="px-3 py-2.5 font-medium whitespace-nowrap text-right">월세(만원)</th>
               <th className="px-3 py-2.5 font-medium whitespace-nowrap text-right">관리비(만원)</th>
               <th className="px-3 py-2.5 font-medium whitespace-nowrap">보증보험</th>
+              <th className="px-3 py-2.5 font-medium whitespace-nowrap">계약</th>
             </tr>
           </thead>
           <tbody>
@@ -421,7 +425,7 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                 <tr key={l.id} className={"border-b last:border-0 " + (canEdit ? "hover:bg-blue-50 cursor-pointer" : "")}
                     onClick={() => canEdit && onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
-                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.room_number}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.event_id && <EventTag />}{l.room_number}</td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.tenant_phone ? (
@@ -436,6 +440,14 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.monthly_rent)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtIns(l.insurance)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    {l.contract_done ? (
+                      <span className="text-xs text-emerald-700 font-semibold" title={(l.contract_done_by || "") + " · " + String(l.contract_done_at || "").slice(0, 10)}>🎉 완료</span>
+                    ) : (
+                      <button className="text-xs font-semibold bg-emerald-50 border border-emerald-300 text-emerald-700 rounded-full px-2 py-0.5 hover:bg-emerald-100"
+                        onClick={(e) => { e.stopPropagation(); onMarkDone(l); }}>계약완료</button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -451,6 +463,7 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                  onClick={() => canEdit && onRowClick(l)}>
               <div className="flex items-center justify-between mb-1">
                 <div className="font-bold text-slate-800">
+                  {l.event_id && <EventTag />}
                   {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
                   {l.room_number}
                   {canEdit && l.tenant_name && <span className="font-medium text-slate-600 ml-1.5">· {l.tenant_name}</span>}
@@ -463,12 +476,22 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                 {l.monthly_rent != null && <span>월세 {fmtMoney(l.monthly_rent)}만</span>}
                 {l.insurance != null && <span>보험 {fmtIns(l.insurance)}</span>}
               </div>
-              {l.tenant_phone && (
-                <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
-                   className="mt-2 inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-blue-100">
-                  📞 {l.tenant_phone}
-                </a>
-              )}
+              <div className="flex flex-wrap gap-2 mt-2 items-center">
+                {l.tenant_phone && (
+                  <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
+                     className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-blue-100">
+                    📞 {l.tenant_phone}
+                  </a>
+                )}
+                {l.contract_done ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-semibold">🎉 {l.contract_done_by} 계약완료</span>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); onMarkDone(l); }}
+                    className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-emerald-100">
+                    🎉 계약완료
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -618,6 +641,98 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
             {g.map((l) => <DupRow key={l.id} l={l} bName={bName} onDelete={del} busy={busy} />)}
           </div>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------- 이벤트 개설/수정 ---------------- */
+function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
+  const isNew = !event.id;
+  const [title, setTitle] = useState(event.title || "");
+  const [desc, setDesc] = useState(event.description || "");
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(() => new Set(leases.filter((l) => event.id && l.event_id === event.id).map((l) => l.id)));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "";
+  const qq = q.trim().toLowerCase();
+  const filtered = leases.filter((l) => {
+    if (!qq) return true;
+    return bName(l.building_id).toLowerCase().includes(qq) ||
+      (l.room_number || "").toLowerCase().includes(qq) ||
+      (l.tenant_name || "").toLowerCase().includes(qq);
+  });
+  const toggle = (id) => setSel((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selectFiltered = () => setSel((p) => { const n = new Set(p); filtered.forEach((l) => n.add(l.id)); return n; });
+  const clearFiltered = () => setSel((p) => { const n = new Set(p); filtered.forEach((l) => n.delete(l.id)); return n; });
+
+  const save = async () => {
+    if (!title.trim()) { setErr("이벤트 제목을 입력하세요."); return; }
+    if (sel.size === 0 && !confirm("선택된 매물이 없습니다. 그래도 저장할까요?")) return;
+    setBusy(true); setErr("");
+    try {
+      let evId = event.id;
+      if (isNew) {
+        const { data, error } = await sb.from("events").insert({
+          title: title.trim(), description: desc.trim() || null,
+          created_by: (me && (me.full_name || me.email)) || null,
+        }).select().single();
+        if (error) throw error;
+        evId = data.id;
+      } else {
+        const { error } = await sb.from("events").update({ title: title.trim(), description: desc.trim() || null }).eq("id", event.id);
+        if (error) throw error;
+      }
+      const prev = new Set(leases.filter((l) => l.event_id === evId).map((l) => l.id));
+      const toAdd = [...sel].filter((id) => !prev.has(id));
+      const toRemove = [...prev].filter((id) => !sel.has(id));
+      if (toAdd.length) { const { error } = await sb.from("leases").update({ event_id: evId }).in("id", toAdd); if (error) throw error; }
+      if (toRemove.length) { const { error } = await sb.from("leases").update({ event_id: null }).in("id", toRemove); if (error) throw error; }
+      onSaved(); onClose();
+    } catch (e2) { setErr("저장 실패: " + e2.message); }
+    finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (!confirm(`"${event.title}" 이벤트를 삭제할까요? 매물의 이벤트 태그도 함께 해제됩니다.`)) return;
+    setBusy(true);
+    const { error } = await sb.from("events").delete().eq("id", event.id);
+    setBusy(false);
+    if (error) setErr("삭제 실패: " + error.message); else { onSaved(); onClose(); }
+  };
+
+  return (
+    <Modal title={isNew ? "🎁 새 이벤트 개설" : "이벤트 수정"} onClose={onClose} wide>
+      <Field label="이벤트 제목 *"><input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 7월 중개수수료 지원 이벤트" /></Field>
+      <Field label="이벤트 내용"><textarea className={inputCls} rows="3" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="조건, 기간, 혜택 등을 적어주세요" /></Field>
+      <div className="border-t pt-3">
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
+          <p className="text-sm font-semibold text-slate-600">대상 매물 선택 <span className="text-rose-600">{sel.size}건</span></p>
+          <div className="flex-1" />
+          <button className="text-xs text-blue-600 font-semibold" onClick={selectFiltered}>검색결과 전체선택</button>
+          <button className="text-xs text-slate-400 font-semibold" onClick={clearFiltered}>선택해제</button>
+        </div>
+        <input className={inputCls + " mb-2"} placeholder="건물명 · 호수 · 임차인으로 검색해서 추리세요" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="border rounded-xl max-h-64 overflow-y-auto divide-y">
+          {filtered.length === 0 && <p className="text-sm text-slate-400 text-center py-6">검색 결과가 없습니다.</p>}
+          {filtered.map((l) => (
+            <label key={l.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-50">
+              <input type="checkbox" className="w-4 h-4 accent-rose-500 shrink-0" checked={sel.has(l.id)} onChange={() => toggle(l.id)} />
+              <span className="text-sm min-w-0 truncate">
+                <b className="text-slate-800">{bName(l.building_id)} {l.room_number}</b>
+                {l.tenant_name && <span className="text-slate-500 ml-1.5">{l.tenant_name}</span>}
+                <span className="text-slate-400 ml-1.5">만기 {fmtDate(l.end_date)}</span>
+              </span>
+              {l.event_id && l.event_id !== event.id && <span className="ml-auto text-[10px] shrink-0 text-amber-600 font-semibold">다른 이벤트 적용중</span>}
+            </label>
+          ))}
+        </div>
+      </div>
+      {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
+      <div className="flex gap-2 pt-3 pb-2">
+        <button className={btnPrimary + " flex-1 py-3"} onClick={save} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
+        {!isNew && <button className={btnDanger} onClick={remove} disabled={busy}>삭제</button>}
+        <button className={btnGhost} onClick={onClose}>취소</button>
       </div>
     </Modal>
   );
@@ -866,6 +981,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [buildings, setBuildings] = useState([]);
   const [leases, setLeases] = useState([]);
   const [customFields, setCustomFields] = useState([]);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all
   const [search, setSearch] = useState("");
@@ -876,15 +992,25 @@ function MainApp({ session, profile, onProfileChanged }) {
   const isAdmin = profile.role === "admin";
 
   const fetchAll = async () => {
-    const [b, l, f] = await Promise.all([
+    const [b, l, f, e] = await Promise.all([
       sb.from("buildings").select("*"),
       sb.from("leases").select("*"),
       sb.from("custom_fields").select("*").order("sort_order"),
+      sb.from("events").select("*").order("created_at", { ascending: false }),
     ]);
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
     setLeases((l.data || []).sort(leaseSort));
     setCustomFields(f.data || []);
+    setEvents(e.data || []);
     setLoading(false);
+  };
+
+  const markDone = async (l) => {
+    const bld = buildings.find((x) => x.id === l.building_id);
+    if (!confirm(`${(bld && bld.name) || ""} ${l.room_number}을(를) 계약완료로 표시할까요?\n축하 코너에 ${profile.full_name || ""}님 이름으로 게시됩니다.`)) return;
+    const { error } = await sb.rpc("set_contract_done", { p_lease: l.id, p_done: true });
+    if (error) alert("처리 실패: " + error.message);
+    else fetchAll();
   };
   useEffect(() => { fetchAll(); }, []);
 
@@ -1051,7 +1177,9 @@ function MainApp({ session, profile, onProfileChanged }) {
                         return (
                           <div key={l.id} className="flex items-center justify-between text-sm">
                             <span className="text-slate-600 truncate">
+                              {l.event_id && <EventTag />}
                               <b className="text-slate-800">{l.room_number}</b>
+                              {l.contract_done && <span className="ml-1">🎉</span>}
                               {canEdit && l.tenant_name && <span className="ml-1.5">{l.tenant_name}</span>}
                               <span className="ml-1.5 text-slate-400">{fmtDate(l.end_date)}</span>
                             </span>
@@ -1073,12 +1201,49 @@ function MainApp({ session, profile, onProfileChanged }) {
             <div className="flex items-center gap-2 mb-4">
               <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={() => setView({ name: "home" })}>←</button>
               <h2 className="font-bold text-xl text-slate-800">🎁 이벤트</h2>
+              <span className="text-sm text-slate-400">{events.length}개</span>
+              <div className="flex-1" />
+              {canEdit && <button className={btnPrimary} onClick={() => setModal({ type: "event", event: {} })}>+ 새 이벤트</button>}
             </div>
-            <div className="bg-white rounded-2xl border p-10 text-center">
-              <div className="text-4xl mb-3">🎈</div>
-              <p className="text-slate-500 font-medium">진행 중인 이벤트가 없습니다.</p>
-              <p className="text-sm text-slate-400 mt-1">새 이벤트가 열리면 이곳에 게시됩니다.</p>
-            </div>
+            {events.length === 0 ? (
+              <div className="bg-white rounded-2xl border p-10 text-center">
+                <div className="text-4xl mb-3">🎈</div>
+                <p className="text-slate-500 font-medium">진행 중인 이벤트가 없습니다.</p>
+                <p className="text-sm text-slate-400 mt-1">{canEdit ? "+ 새 이벤트 버튼으로 이벤트를 개설해보세요." : "새 이벤트가 열리면 이곳에 게시됩니다."}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {events.map((ev) => {
+                  const evLeases = leases.filter((l) => l.event_id === ev.id);
+                  return (
+                    <div key={ev.id} className="bg-white rounded-2xl border p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-slate-800 break-keep">🎁 {ev.title}</h3>
+                          {ev.description && <p className="text-sm text-slate-500 mt-1 whitespace-pre-wrap break-keep">{ev.description}</p>}
+                        </div>
+                        {canEdit && <button className={btnGhost + " !py-1.5 shrink-0"} onClick={() => setModal({ type: "event", event: ev })}>수정</button>}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2">
+                        대상 매물 {evLeases.length}건 · {String(ev.created_at).slice(0, 10)}{ev.created_by ? " · " + ev.created_by : ""}
+                      </p>
+                      {evLeases.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {evLeases.map((l) => {
+                            const b = buildings.find((x) => x.id === l.building_id);
+                            return (
+                              <span key={l.id} className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2 py-0.5">
+                                {(b && b.name) || ""} {l.room_number}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -1098,7 +1263,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                 </div>
               )}
             </div>
-            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} showBuilding={false} onRowClick={openLease} />
+            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} showBuilding={false} onRowClick={openLease} onMarkDone={markDone} />
           </div>
         )}
 
@@ -1120,7 +1285,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                   (l.room_number || "").toLowerCase().includes(q) ||
                   (l.tenant_name || "").toLowerCase().includes(q);
               })}
-              buildings={buildings} canEdit={canEdit} showBuilding={true} onRowClick={openLease} />
+              buildings={buildings} canEdit={canEdit} showBuilding={true} onRowClick={openLease} onMarkDone={markDone} />
           </div>
         )}
       </main>
@@ -1131,6 +1296,9 @@ function MainApp({ session, profile, onProfileChanged }) {
       )}
       {modal && modal.type === "building" && (
         <BuildingModal building={modal.building} onClose={() => { setModal(null); if (modal.building.id) setView({ name: "home" }); }} onSaved={fetchAll} />
+      )}
+      {modal && modal.type === "event" && canEdit && (
+        <EventModal event={modal.event} leases={leases} buildings={buildings} me={profile} onClose={() => setModal(null)} onSaved={fetchAll} />
       )}
       {modal && modal.type === "dups" && canEdit && (
         <DuplicateModal leases={leases} buildings={buildings} onClose={() => setModal(null)} onSaved={fetchAll} />
