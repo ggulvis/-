@@ -821,6 +821,7 @@ function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
 
 /* ---------------- 관리자 패널 ---------------- */
 function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }) {
+  const isAdminU = profile.role === "admin";
   const [tab, setTab] = useState("users");
   const [users, setUsers] = useState([]);
   const [records, setRecords] = useState(null);
@@ -973,13 +974,18 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
   );
 
   return (
-    <Modal title="관리자 패널" onClose={onClose} wide>
-      <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1">
-        {tabBtn("users", "사용자 관리", pendingUsers.length)}
-        {tabBtn("records", "계약 실적")}
-        {tabBtn("fields", "커스텀 필드")}
-        {tabBtn("excel", "엑셀 업로드")}
-      </div>
+    <Modal title={isAdminU ? "관리자 패널" : "가입 승인"} onClose={onClose} wide>
+      {isAdminU && (
+        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1">
+          {tabBtn("users", "사용자 관리", pendingUsers.length)}
+          {tabBtn("records", "계약 실적")}
+          {tabBtn("fields", "커스텀 필드")}
+          {tabBtn("excel", "엑셀 업로드")}
+        </div>
+      )}
+      {!isAdminU && (
+        <p className="text-sm text-slate-500 mb-3">가입 신청자를 열람자로 승인할 수 있습니다. 등급 변경은 관리자에게 요청하세요.</p>
+      )}
 
       {tab === "records" && (
         <div className="pb-2">
@@ -1015,8 +1021,10 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
 
       {tab === "users" && (
         <div className="space-y-2 pb-2">
-          {users.length === 0 && <p className="text-sm text-slate-400 text-center py-6">사용자가 없습니다.</p>}
-          {users.map((u) => (
+          {(isAdminU ? users : pendingUsers).length === 0 && (
+            <p className="text-sm text-slate-400 text-center py-6">{isAdminU ? "사용자가 없습니다." : "승인 대기 중인 가입 신청이 없습니다."}</p>
+          )}
+          {(isAdminU ? users : pendingUsers).map((u) => (
             <div key={u.id} className={"border rounded-xl p-3 " + (u.status === "pending" ? "border-amber-300 bg-amber-50" : "bg-white")}>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="font-semibold text-slate-800">{u.full_name || "(이름 없음)"}</span>
@@ -1028,8 +1036,8 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
                 {u.status === "pending" ? (
                   <React.Fragment>
                     <button className={btnPrimary + " !py-1.5"} onClick={() => approve(u, "viewer")}>열람자로 승인</button>
-                    <button className={btnGhost + " !py-1.5"} onClick={() => approve(u, "editor")}>편집자로 승인</button>
-                    <button className={btnDanger + " !py-1.5"} onClick={() => removeUser(u)}>거절</button>
+                    {isAdminU && <button className={btnGhost + " !py-1.5"} onClick={() => approve(u, "editor")}>편집자로 승인</button>}
+                    {isAdminU && <button className={btnDanger + " !py-1.5"} onClick={() => removeUser(u)}>거절</button>}
                   </React.Fragment>
                 ) : (
                   <React.Fragment>
@@ -1218,9 +1226,11 @@ function MainApp({ session, profile, onProfileChanged }) {
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "all" })}>전체보기</button>
           )}
-          {isAdmin && (
+          {isAdmin ? (
             <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>관리자</button>
-          )}
+          ) : canEdit ? (
+            <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>가입승인</button>
+          ) : null}
           <div className="relative">
             <button className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 font-bold text-sm flex items-center justify-center" onClick={() => setMenuOpen((v) => !v)}>
               {(profile.full_name || "?").slice(0, 1)}
@@ -1447,7 +1457,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       {modal && modal.type === "dups" && canEdit && (
         <DuplicateModal leases={leases} buildings={buildings} onClose={() => setModal(null)} onSaved={fetchAll} />
       )}
-      {modal && modal.type === "admin" && isAdmin && (
+      {modal && modal.type === "admin" && canEdit && (
         <AdminPanel profile={profile} buildings={buildings} customFields={customFields} onClose={() => setModal(null)} onDataChanged={fetchAll} />
       )}
       {modal && modal.type === "profile" && (
