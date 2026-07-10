@@ -69,6 +69,7 @@ function fmtMoney(v) {
   return n.toLocaleString();
 }
 function fmtDate(d) { return d || "-"; }
+function telHref(p) { return "tel:" + String(p).replace(/[^0-9+]/g, ""); }
 function normDate(v) {
   if (v === null || v === undefined || v === "") return null;
   if (v instanceof Date && !isNaN(v)) {
@@ -298,7 +299,12 @@ function LeaseModal({ lease, buildings, customFields, onClose, onSaved }) {
         </Field>
         <Field label="호수 *"><input className={inputCls} value={f.room_number} onChange={(e) => set("room_number", e.target.value)} placeholder="101호" /></Field>
         <Field label="임차인명"><input className={inputCls} value={f.tenant_name} onChange={(e) => set("tenant_name", e.target.value)} /></Field>
-        <Field label="연락처"><input className={inputCls} value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></Field>
+        <Field label="연락처">
+          <div className="flex gap-2">
+            <input className={inputCls} value={f.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" />
+            {f.phone.trim() && <a href={telHref(f.phone)} className="shrink-0 flex items-center justify-center w-10 rounded-lg bg-blue-50 border border-blue-200 text-lg" title="전화 걸기">📞</a>}
+          </div>
+        </Field>
         <Field label="입주날짜"><input type="date" className={inputCls} value={f.start_date} onChange={(e) => set("start_date", e.target.value)} /></Field>
         <Field label="만기일"><input type="date" className={inputCls} value={f.end_date} onChange={(e) => set("end_date", e.target.value)} /></Field>
         <Field label="보증금 (만원)"><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
@@ -363,7 +369,12 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.room_number}</td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
-                  <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_phone || "-"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    {l.tenant_phone ? (
+                      <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
+                         className="text-blue-600 hover:underline font-medium">📞 {l.tenant_phone}</a>
+                    ) : "-"}
+                  </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.start_date)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.end_date)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap"><span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span></td>
@@ -398,6 +409,12 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                 {l.rent != null && <span>월세 {fmtMoney(l.rent)}만</span>}
                 {l.insurance && <span>보험 {l.insurance}</span>}
               </div>
+              {l.tenant_phone && (
+                <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
+                   className="mt-2 inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-blue-100">
+                  📞 {l.tenant_phone}
+                </a>
+              )}
             </div>
           );
         })}
