@@ -186,7 +186,13 @@ function SetupScreen() {
   );
 }
 function LoginScreen() {
-  const login = () => sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin + window.location.pathname } });
+  const login = () => sb.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: window.location.origin + window.location.pathname,
+      queryParams: { prompt: "select_account" }, // 매번 구글 계정 선택 화면 표시
+    },
+  });
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-b from-blue-50 to-slate-100">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm text-center">
@@ -1037,11 +1043,13 @@ function MainApp({ session, profile, onProfileChanged }) {
     const { exactGroups, suspectGroups } = findDupGroups(leases);
     return exactGroups.length + suspectGroups.length;
   }, [leases]);
-  const celebrations = useMemo(() =>
-    leases.filter((l) => l.contract_done && l.contract_done_at)
+  const celebrations = useMemo(() => {
+    const cutoff = Date.now() - 60 * 86400000; // 60일 지난 축하는 자동 내림
+    return leases
+      .filter((l) => l.contract_done && l.contract_done_at && new Date(l.contract_done_at).getTime() >= cutoff)
       .sort((a, b) => String(b.contract_done_at).localeCompare(String(a.contract_done_at)))
-      .slice(0, 5),
-  [leases]);
+      .slice(0, 2); // 최근 2건만 게시
+  }, [leases]);
 
   const openLease = (l) => canEdit && setModal({ type: "lease", lease: l });
 
