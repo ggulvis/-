@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase REST API
-        run: curl -sf -o /dev/null -w "HTTP %{http_code}\n" "https://nhkbymfhmqgilbdxirpq.supabase.co/rest/v1/buildings?select=id&limit=1" -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+        run: |
+          curl -sf -o /dev/null -w "HTTP %{http_code}\n" "https://nhkbymfhmqgilbdxirpq.supabase.co/rest/v1/buildings?select=id&limit=1" -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY"
         env:
           SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oa2J5bWZobXFnaWxiZHhpcnBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MTQ3MDgsImV4cCI6MjA5MjI5MDcwOH0.Ob3Suz5Fi1zCkVSf3Hoiafns75nKIq0YJ7z9Uh3bt_c
