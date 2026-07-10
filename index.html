@@ -254,7 +254,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
     memo: lease.memo || "",
     extra: lease.custom_data || {},
     contract_done: !!lease.contract_done,
+    contract_by: lease.contract_done_by || "",
   });
+  const isAdminUser = me && me.role === "admin";
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
@@ -278,11 +280,18 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
       custom_data: f.extra,
     };
     // 계약완료 처리: 새로 체크하면 완료자·일시 기록, 해제하면 초기화
-    if (f.contract_done && !lease.contract_done) {
+    // 관리자는 완료자 이름을 직접 지정/수정 가능
+    if (f.contract_done) {
       payload.contract_done = true;
-      payload.contract_done_by = (me && (me.full_name || me.email)) || null;
-      payload.contract_done_at = new Date().toISOString();
-    } else if (!f.contract_done && lease.contract_done) {
+      if (!lease.contract_done) {
+        payload.contract_done_by = (isAdminUser && f.contract_by.trim())
+          ? f.contract_by.trim()
+          : ((me && (me.full_name || me.email)) || null);
+        payload.contract_done_at = new Date().toISOString();
+      } else if (isAdminUser && f.contract_by.trim() && f.contract_by.trim() !== (lease.contract_done_by || "")) {
+        payload.contract_done_by = f.contract_by.trim();
+      }
+    } else if (lease.contract_done) {
       payload.contract_done = false;
       payload.contract_done_by = null;
       payload.contract_done_at = null;
@@ -324,16 +333,27 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
         <Field label="보증보험"><input className={inputCls} value={f.insurance} onChange={(e) => set("insurance", e.target.value)} placeholder="가입 / 미가입" list="insurance-opts" /></Field>
         <datalist id="insurance-opts"><option value="가입" /><option value="미가입" /></datalist>
       </div>
-      <label className="flex items-center gap-2.5 mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3 cursor-pointer">
-        <input type="checkbox" className="w-5 h-5 accent-emerald-600" checked={f.contract_done} onChange={(e) => set("contract_done", e.target.checked)} />
-        <span className="text-sm font-bold text-emerald-800">🎉 계약완료</span>
-        {lease.contract_done && lease.contract_done_by && (
-          <span className="text-xs text-emerald-600 ml-auto">{lease.contract_done_by} · {String(lease.contract_done_at || "").slice(0, 10)}</span>
+      <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3">
+        <label className="flex items-center gap-2.5 cursor-pointer">
+          <input type="checkbox" className="w-5 h-5 accent-emerald-600" checked={f.contract_done} onChange={(e) => set("contract_done", e.target.checked)} />
+          <span className="text-sm font-bold text-emerald-800">🎉 계약완료</span>
+          {lease.contract_done && lease.contract_done_by && !isAdminUser && (
+            <span className="text-xs text-emerald-600 ml-auto">{lease.contract_done_by} · {String(lease.contract_done_at || "").slice(0, 10)}</span>
+          )}
+          {!lease.contract_done && f.contract_done && !isAdminUser && (
+            <span className="text-xs text-emerald-600 ml-auto">저장하면 축하 코너에 게시됩니다</span>
+          )}
+        </label>
+        {f.contract_done && isAdminUser && (
+          <div className="mt-2.5 flex items-center gap-2">
+            <span className="text-xs font-medium text-emerald-700 shrink-0">완료자</span>
+            <input className={inputCls + " !py-1.5 text-sm"} value={f.contract_by}
+              onChange={(e) => set("contract_by", e.target.value)}
+              placeholder={(me && (me.full_name || me.email)) || ""} />
+            {lease.contract_done_at && <span className="text-xs text-emerald-600 shrink-0">{String(lease.contract_done_at).slice(0, 10)}</span>}
+          </div>
         )}
-        {!lease.contract_done && f.contract_done && (
-          <span className="text-xs text-emerald-600 ml-auto">저장하면 축하 코너에 게시됩니다</span>
-        )}
-      </label>
+      </div>
       <Field label="메모"><textarea className={inputCls} rows="3" value={f.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
       {customFields.length > 0 && (
         <div className="border-t pt-3 mt-1">
