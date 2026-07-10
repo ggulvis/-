@@ -603,6 +603,7 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
       if (rows.length === 0) throw new Error("데이터 행이 없습니다.");
       const keyOf = (row, kw) => Object.keys(row).find((k) => k.replace(/\s/g, "").includes(kw));
       const k = {
+        id: keyOf(rows[0], "ID"),
         building: keyOf(rows[0], "건물명"), room: keyOf(rows[0], "호수"),
         tenant: keyOf(rows[0], "임차인"), phone: keyOf(rows[0], "연락처"),
         start: keyOf(rows[0], "입주"), end: keyOf(rows[0], "만기"),
@@ -622,14 +623,15 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
         (inserted || []).forEach((b) => (bMap[b.name] = b.id));
       }
 
-      // 2) 중복 방지: 기존 임대 키 셋
-      const { data: existingL } = await sb.from("leases").select("building_id,room_number,tenant_name,start_date,end_date");
+      // 2) 기존 임대 조회: ID 매칭(수정용) + 중복 방지 키
+      const { data: existingL } = await sb.from("leases").select("id,building_id,room_number,tenant_name,start_date,end_date");
+      const existingIds = new Set((existingL || []).map((l) => l.id));
       const dupKey = (l) => [l.building_id, l.room_number, l.tenant_name || "", l.start_date || "", l.end_date || ""].join("|");
       const seen = new Set((existingL || []).map(dupKey));
 
-      // 3) 행 변환
-      let skipped = 0, invalid = 0;
-      const payloads = [];
+      // 3) 행 변환: ID가 있으면 기존 데이터 수정, 없으면 신규 등록
+      let skipped = 0, invalid = 0, updated = 0;
+      const inserts = [], updates = [];
       for (const r of rows) {
         const bname = String(r[k.building]).trim();
         const room = String(r[k.room]).trim();
@@ -646,20 +648,31 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
           management_fee: k.fee ? numOrNull(r[k.fee]) : null,
           insurance: k.insurance ? String(r[k.insurance]).trim() || null : null,
           memo: k.memo ? String(r[k.memo]).trim() || null : null,
-          custom_data: {},
         };
+        const rowId = k.id ? String(r[k.id]).trim() : "";
+        if (rowId && existingIds.has(rowId)) {
+          updates.push({ id: rowId, payload: p });
+          continue;
+        }
+        p.custom_data = {};
         const key = dupKey(p);
         if (seen.has(key)) { skipped++; continue; }
         seen.add(key);
-        payloads.push(p);
+        inserts.push(p);
       }
 
-      // 4) 100건씩 삽입
-      for (let i = 0; i < payloads.length; i += 100) {
-        const { error } = await sb.from("leases").insert(payloads.slice(i, i + 100));
+      // 4) 수정 반영 (ID 매칭 행)
+      for (const u of updates) {
+        const { error } = await sb.from("leases").update(u.payload).eq("id", u.id);
+        if (error) throw error;
+        updated++;
+      }
+      // 5) 신규 100건씩 삽입
+      for (let i = 0; i < inserts.length; i += 100) {
+        const { error } = await sb.from("leases").insert(inserts.slice(i, i + 100));
         if (error) throw error;
       }
-      setImportResult({ ok: true, added: payloads.length, skipped, invalid, total: rows.length });
+      setImportResult({ ok: true, added: inserts.length, updated, skipped, invalid, total: rows.length });
       onDataChanged();
     } catch (e) {
       setImportResult({ ok: false, message: e.message });
@@ -744,7 +757,8 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
           <div className="bg-slate-50 border rounded-xl p-3 mb-4 text-sm text-slate-600 leading-relaxed">
             <p className="font-semibold text-slate-700 mb-1">엑셀 양식 (첫 행 = 열 제목)</p>
             <p className="break-keep">건물명(주소) · 호수 · 임차인명 · 연락처 · 입주날짜 · 만기일 · 보증금(만원) · 월세(만원) · 관리비(만원) · 보증보험 · 메모</p>
-            <p className="mt-2 text-slate-400">※ 이미 등록된 것과 동일한 행(건물·호수·임차인·입주·만기 일치)은 자동으로 건너뜁니다.</p>
+            <p className="mt-2 text-slate-400 break-keep">※ "엑셀 다운로드"로 받은 파일에는 ID 열이 있습니다. ID가 있는 행은 <b>기존 데이터 수정</b>으로 반영되고(중복 안 생김), ID가 없는 행은 신규 등록됩니다. ID 열은 수정하지 마세요.</p>
+            <p className="mt-1 text-slate-400">※ 이미 등록된 것과 동일한 행(건물·호수·임차인·입주·만기 일치)은 자동으로 건너뜁니다.</p>
           </div>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
           <button className={btnPrimary + " w-full py-3"} disabled={importing} onClick={() => fileRef.current.click()}>
@@ -754,6 +768,7 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
             importResult.ok ? (
               <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-800">
                 총 {importResult.total}행 중 <b>{importResult.added}건 추가</b>
+                {importResult.updated > 0 && <span>, <b>{importResult.updated}건 수정</b></span>}
                 {importResult.skipped > 0 && <span>, 중복 {importResult.skipped}건 건너뜀</span>}
                 {importResult.invalid > 0 && <span>, 필수값 누락 {importResult.invalid}건 제외</span>}
               </div>
@@ -820,6 +835,31 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const openLease = (l) => canEdit && setModal({ type: "lease", lease: l });
 
+  const exportExcel = () => {
+    const rows = leases.map((l) => {
+      const b = buildings.find((x) => x.id === l.building_id) || {};
+      return {
+        "ID(수정금지)": l.id,
+        "건물명(주소)": b.name || "",
+        "호수": l.room_number || "",
+        "임차인명": l.tenant_name || "",
+        "연락처": l.tenant_phone || "",
+        "입주날짜": l.start_date || "",
+        "만기일": l.end_date || "",
+        "보증금(만원)": l.deposit ?? "",
+        "월세(만원)": l.rent ?? "",
+        "관리비(만원)": l.management_fee ?? "",
+        "보증보험": l.insurance || "",
+        "메모": l.memo || "",
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "임대현황");
+    const d = new Date(), pad = (n) => String(n).padStart(2, "0");
+    XLSX.writeFile(wb, `보담임대현황_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`);
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">불러오는 중...</div>;
 
   const currentBuilding = view.name === "building" ? buildings.find((b) => b.id === view.buildingId) : null;
@@ -875,6 +915,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                   <button className={btnGhost + (dupCount > 0 ? " !border-amber-400 !text-amber-700" : "")} onClick={() => setModal({ type: "dups" })}>
                     중복 검사{dupCount > 0 && <span className="ml-1.5 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5">{dupCount}</span>}
                   </button>
+                  <button className={btnGhost} onClick={exportExcel} disabled={leases.length === 0}>엑셀 다운로드</button>
                   <button className={btnGhost} onClick={() => setModal({ type: "building", building: {} })}>+ 건물</button>
                   <button className={btnPrimary} onClick={() => setModal({ type: "lease", lease: {} })} disabled={buildings.length === 0}>+ 임대 등록</button>
                 </div>
