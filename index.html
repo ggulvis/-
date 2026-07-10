@@ -265,6 +265,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
     rent: lease.monthly_rent ?? "",
     maintenance_fee: lease.management_fee ?? "",
     insurance: lease.insurance === true ? "true" : lease.insurance === false ? "false" : "",
+    door_code: lease.door_code || "",
     memo: lease.memo || "",
     extra: lease.custom_data || {},
     contract_done: !!lease.contract_done,
@@ -290,6 +291,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
       monthly_rent: numOrNull(f.rent),
       management_fee: numOrNull(f.maintenance_fee),
       insurance: f.insurance === "" ? null : f.insurance === "true",
+      door_code: f.door_code.trim() || null,
       memo: f.memo.trim() || null,
       custom_data: f.extra,
     };
@@ -351,6 +353,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
             <option value="false">미가입</option>
           </select>
         </Field>
+        <Field label="호실 비밀번호"><input className={inputCls} value={f.door_code} onChange={(e) => set("door_code", e.target.value)} placeholder="예: 1234*" /></Field>
       </div>
       <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3">
         <label className="flex items-center gap-2.5 cursor-pointer">
@@ -428,8 +431,8 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick, onMar
             {leases.map((l) => {
               const d = ddayInfo(l.end_date);
               return (
-                <tr key={l.id} className={"border-b last:border-0 " + (canEdit ? "hover:bg-blue-50 cursor-pointer" : "")}
-                    onClick={() => canEdit && onRowClick(l)}>
+                <tr key={l.id} className="border-b last:border-0 hover:bg-blue-50 cursor-pointer"
+                    onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.event_id && <EventTag />}{l.room_number}</td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
@@ -465,8 +468,8 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick, onMar
         {leases.map((l) => {
           const d = ddayInfo(l.end_date);
           return (
-            <div key={l.id} className={"bg-white rounded-xl border p-3 " + (canEdit ? "active:bg-blue-50" : "")}
-                 onClick={() => canEdit && onRowClick(l)}>
+            <div key={l.id} className="bg-white rounded-xl border p-3 active:bg-blue-50 cursor-pointer"
+                 onClick={() => onRowClick(l)}>
               <div className="flex items-center justify-between mb-1">
                 <div className="font-bold text-slate-800">
                   {l.event_id && <EventTag />}
@@ -511,12 +514,13 @@ function BuildingModal({ building, onClose, onSaved }) {
   const isNew = !building.id;
   const [name, setName] = useState(building.name || "");
   const [address, setAddress] = useState(building.address || "");
+  const [entrance, setEntrance] = useState(building.entrance_code || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const save = async () => {
     if (!name.trim()) { setErr("건물명을 입력하세요."); return; }
     setBusy(true); setErr("");
-    const payload = { name: name.trim(), address: address.trim() || null };
+    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null };
     const q = isNew ? sb.from("buildings").insert(payload) : sb.from("buildings").update(payload).eq("id", building.id);
     const { error } = await q;
     setBusy(false);
@@ -533,6 +537,7 @@ function BuildingModal({ building, onClose, onSaved }) {
     <Modal title={isNew ? "건물 추가" : "건물 수정"} onClose={onClose}>
       <Field label="건물명"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 보담빌딩" /></Field>
       <Field label="주소"><input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="예: 서울 마포구 ..." /></Field>
+      <Field label="공동현관 비밀번호"><input className={inputCls} value={entrance} onChange={(e) => setEntrance(e.target.value)} placeholder="예: #1234" /></Field>
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
       <div className="flex gap-2 pb-2">
         <button className={btnPrimary + " flex-1"} onClick={save} disabled={busy}>저장</button>
@@ -652,6 +657,56 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
   );
 }
 
+/* ---------------- 매물 상세 팝업 (열람용) ---------------- */
+function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, onClose, onEdit, onMarkDone }) {
+  const b = buildings.find((x) => x.id === lease.building_id) || {};
+  const ev = events.find((e) => e.id === lease.event_id);
+  const d = ddayInfo(lease.end_date);
+  const Row = ({ k, v }) => (v === null || v === undefined || v === "") ? null : (
+    <div className="flex justify-between gap-3 py-2 border-b border-slate-200/70 last:border-0 text-sm">
+      <span className="text-slate-400 shrink-0">{k}</span>
+      <span className="text-slate-800 font-medium text-right break-keep whitespace-pre-wrap">{v}</span>
+    </div>
+  );
+  return (
+    <Modal title={`${b.name || ""} ${lease.room_number || ""}`} onClose={onClose}>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span>
+        {ev && <span className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2 py-0.5 font-semibold">🎁 {ev.title}</span>}
+        {lease.contract_done && <span className="text-xs text-emerald-700 font-semibold">🎉 {lease.contract_done_by} 계약완료</span>}
+      </div>
+      {lease.tenant_phone && (
+        <a href={telHref(lease.tenant_phone)}
+           className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white font-bold rounded-xl py-3 mb-3 active:bg-blue-700">
+          📞 전화 걸기 · {lease.tenant_phone}
+        </a>
+      )}
+      <div className="bg-slate-50 rounded-xl px-3 mb-3">
+        {b.address && <Row k="주소" v={b.address} />}
+        {canEdit && <Row k="임차인" v={lease.tenant_name} />}
+        <Row k="입주날짜" v={lease.start_date} />
+        <Row k="만기일" v={lease.end_date} />
+        <Row k="보증금" v={lease.deposit != null ? fmtMoney(lease.deposit) + "만원" : null} />
+        <Row k="월세" v={lease.monthly_rent != null ? fmtMoney(lease.monthly_rent) + "만원" : null} />
+        <Row k="관리비" v={lease.management_fee != null ? fmtMoney(lease.management_fee) + "만원" : null} />
+        <Row k="보증보험" v={lease.insurance == null ? null : fmtIns(lease.insurance)} />
+        <Row k="공동현관" v={b.entrance_code} />
+        <Row k="호실 비밀번호" v={lease.door_code} />
+        {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
+        <Row k="메모" v={lease.memo} />
+      </div>
+      <div className="flex gap-2 pb-2">
+        {!lease.contract_done && (
+          <button className="flex-1 bg-emerald-50 border border-emerald-300 text-emerald-700 font-bold rounded-lg py-2.5"
+            onClick={() => { onClose(); onMarkDone(lease); }}>🎉 계약완료</button>
+        )}
+        {canEdit && <button className={btnPrimary + " flex-1"} onClick={() => onEdit(lease)}>수정</button>}
+        <button className={btnGhost} onClick={onClose}>닫기</button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ---------------- 이벤트 개설/수정 ---------------- */
 function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
   const isNew = !event.id;
@@ -748,6 +803,13 @@ function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
 function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }) {
   const [tab, setTab] = useState("users");
   const [users, setUsers] = useState([]);
+  const [records, setRecords] = useState(null);
+  useEffect(() => {
+    if (tab === "records" && records === null) {
+      sb.from("contract_records").select("*").order("done_at", { ascending: false }).limit(300)
+        .then(({ data }) => setRecords(data || []));
+    }
+  }, [tab]);
   const [newField, setNewField] = useState("");
   const [msg, setMsg] = useState("");
   const [importResult, setImportResult] = useState(null);
@@ -894,9 +956,42 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
     <Modal title="관리자 패널" onClose={onClose} wide>
       <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1">
         {tabBtn("users", "사용자 관리", pendingUsers.length)}
+        {tabBtn("records", "계약 실적")}
         {tabBtn("fields", "커스텀 필드")}
         {tabBtn("excel", "엑셀 업로드")}
       </div>
+
+      {tab === "records" && (
+        <div className="pb-2">
+          {records === null ? (
+            <p className="text-sm text-slate-400 text-center py-6">불러오는 중...</p>
+          ) : records.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">아직 계약 실적이 없습니다.</p>
+          ) : (
+            <React.Fragment>
+              <p className="text-sm font-semibold text-slate-600 mb-2">사람별 누적 실적</p>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {Object.entries(records.reduce((m, r) => { const k = r.done_by || "(미상)"; m[k] = (m[k] || 0) + 1; return m; }, {}))
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([name, cnt]) => (
+                    <span key={name} className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full px-3 py-1 text-sm font-semibold">
+                      {name} <b>{cnt}건</b>
+                    </span>
+                  ))}
+              </div>
+              <p className="text-sm font-semibold text-slate-600 mb-2">최근 기록</p>
+              <div className="space-y-1.5">
+                {records.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between text-sm border rounded-xl px-3 py-2 bg-white">
+                    <span className="min-w-0 truncate"><b className="text-slate-800">{r.done_by || "(미상)"}</b><span className="text-slate-500 ml-1.5">{r.building_name} {r.room_number}</span></span>
+                    <span className="text-xs text-slate-400 shrink-0 ml-2">{String(r.done_at).slice(0, 10)}</span>
+                  </div>
+                ))}
+              </div>
+            </React.Fragment>
+          )}
+        </div>
+      )}
 
       {tab === "users" && (
         <div className="space-y-2 pb-2">
@@ -998,6 +1093,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const isAdmin = profile.role === "admin";
 
   const fetchAll = async () => {
+    try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
     const [b, l, f, e] = await Promise.all([
       sb.from("buildings").select("*"),
       sb.from("leases").select("*"),
@@ -1051,7 +1147,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       .slice(0, 2); // 최근 2건만 게시
   }, [leases]);
 
-  const openLease = (l) => canEdit && setModal({ type: "lease", lease: l });
+  const openLease = (l) => setModal(canEdit ? { type: "lease", lease: l } : { type: "detail", lease: l });
 
   const exportExcel = () => {
     const rows = leases.map((l) => {
@@ -1240,9 +1336,10 @@ function MainApp({ session, profile, onProfileChanged }) {
                           {evLeases.map((l) => {
                             const b = buildings.find((x) => x.id === l.building_id);
                             return (
-                              <span key={l.id} className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2 py-0.5">
-                                {(b && b.name) || ""} {l.room_number}
-                              </span>
+                              <button key={l.id} onClick={() => setModal({ type: "detail", lease: l })}
+                                className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2.5 py-1 font-medium hover:bg-rose-100 active:bg-rose-100">
+                                {(b && b.name) || ""} {l.room_number} ›
+                              </button>
                             );
                           })}
                         </div>
@@ -1262,6 +1359,7 @@ function MainApp({ session, profile, onProfileChanged }) {
               <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={() => setView({ name: "home" })}>←</button>
               <h2 className="font-bold text-xl text-slate-800 break-keep">{currentBuilding.name}</h2>
               {currentBuilding.address && <span className="text-sm text-slate-400 break-keep">{currentBuilding.address}</span>}
+              {currentBuilding.entrance_code && <span className="text-sm font-semibold text-slate-600 bg-slate-100 border rounded-lg px-2 py-0.5">🔑 공동현관 {currentBuilding.entrance_code}</span>}
               <span className="text-sm text-slate-400">{(leasesByBuilding[currentBuilding.id] || []).length}건</span>
               <div className="flex-1" />
               {canEdit && (
@@ -1304,6 +1402,11 @@ function MainApp({ session, profile, onProfileChanged }) {
       )}
       {modal && modal.type === "building" && (
         <BuildingModal building={modal.building} onClose={() => { setModal(null); if (modal.building.id) setView({ name: "home" }); }} onSaved={fetchAll} />
+      )}
+      {modal && modal.type === "detail" && (
+        <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit}
+          onClose={() => setModal(null)} onMarkDone={markDone}
+          onEdit={(l) => setModal({ type: "lease", lease: l })} />
       )}
       {modal && modal.type === "event" && canEdit && (
         <EventModal event={modal.event} leases={leases} buildings={buildings} me={profile} onClose={() => setModal(null)} onSaved={fetchAll} />
