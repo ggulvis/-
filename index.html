@@ -1111,6 +1111,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [leases, setLeases] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [events, setEvents] = useState([]);
+  const [reactions, setReactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all
   const [search, setSearch] = useState("");
@@ -1122,17 +1123,29 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
-    const [b, l, f, e] = await Promise.all([
+    const [b, l, f, e, r] = await Promise.all([
       sb.from("buildings").select("*"),
       sb.from("leases").select("*"),
       sb.from("custom_fields").select("*").order("sort_order"),
       sb.from("events").select("*").order("created_at", { ascending: false }),
+      sb.from("celebration_reactions").select("*"),
     ]);
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
     setLeases((l.data || []).sort(leaseSort));
     setCustomFields(f.data || []);
     setEvents(e.data || []);
+    setReactions(r.data || []);
     setLoading(false);
+  };
+
+  const toggleReaction = async (l, emoji) => {
+    const mine = reactions.find((r) => r.lease_id === l.id && r.emoji === emoji && r.by_user === profile.user_id);
+    if (mine) await sb.from("celebration_reactions").delete().eq("id", mine.id);
+    else await sb.from("celebration_reactions").insert({
+      lease_id: l.id, emoji, by_user: profile.user_id, by_name: profile.full_name || profile.email,
+    });
+    const { data } = await sb.from("celebration_reactions").select("*");
+    setReactions(data || []);
   };
 
   const markDone = async (l) => {
@@ -1259,11 +1272,32 @@ function MainApp({ session, profile, onProfileChanged }) {
                 <div className="space-y-1">
                   {celebrations.map((l) => {
                     const b = buildings.find((x) => x.id === l.building_id);
+                    const rlist = reactions.filter((r) => r.lease_id === l.id);
+                    const reactedNames = [...new Set(rlist.map((r) => r.by_name).filter(Boolean))];
                     return (
-                      <p key={l.id} className="text-sm text-slate-700 break-keep">
-                        <b>{l.contract_done_by || "동료"}</b>님이 {(b && b.name) || ""} {l.room_number} 계약을 완료했습니다!
-                        <span className="text-slate-400 ml-1">({String(l.contract_done_at).slice(0, 10)})</span>
-                      </p>
+                      <div key={l.id} className="pb-2 border-b border-amber-100 last:border-0 last:pb-0">
+                        <p className="text-sm text-slate-700 break-keep">
+                          <b>{l.contract_done_by || "동료"}</b>님이 {(b && b.name) || ""} {l.room_number} 계약을 완료했습니다!
+                          <span className="text-slate-400 ml-1">({String(l.contract_done_at).slice(0, 10)})</span>
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          {["👍", "❤️", "👏"].map((em) => {
+                            const rs = rlist.filter((r) => r.emoji === em);
+                            const mine = rs.some((r) => r.by_user === profile.user_id);
+                            return (
+                              <button key={em} onClick={() => toggleReaction(l, em)}
+                                title={rs.map((r) => r.by_name).join(", ")}
+                                className={"text-sm rounded-full border px-2.5 py-0.5 transition " +
+                                  (mine ? "bg-amber-200/70 border-amber-400" : "bg-white/70 border-slate-200 hover:bg-white")}>
+                                {em}{rs.length > 0 && <b className="ml-1 text-xs text-slate-600">{rs.length}</b>}
+                              </button>
+                            );
+                          })}
+                          {reactedNames.length > 0 && (
+                            <span className="text-xs text-slate-400 break-keep">{reactedNames.join(" · ")}님이 축하했어요</span>
+                          )}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
