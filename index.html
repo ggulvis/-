@@ -291,7 +291,7 @@ function PendingScreen({ profile }) {
 }
 
 /* ---------------- 임대 모달 (편집자/관리자) ---------------- */
-function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
+function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUpload }) {
   const isNew = !lease.id;
   const [f, setF] = useState({
     building_id: lease.building_id || (buildings[0] && buildings[0].id) || "",
@@ -434,6 +434,10 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
             ))}
           </div>
         </div>
+      )}
+      {!isNew && onUpload && (
+        <button className="w-full mb-3 bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-lg py-2.5"
+          onClick={() => onUpload(lease)}>📄 계약서 사진 업로드 (자동 인식)</button>
       )}
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
       <div className="flex gap-2 pt-2 pb-2">
@@ -1764,7 +1768,8 @@ function MainApp({ session, profile, onProfileChanged }) {
 
       {/* 모달들 */}
       {modal && modal.type === "lease" && (
-        <LeaseModal lease={modal.lease} buildings={buildings} customFields={customFields} me={profile} onClose={() => setModal(null)} onSaved={fetchAll} />
+        <LeaseModal lease={modal.lease} buildings={buildings} customFields={customFields} me={profile} onClose={() => setModal(null)} onSaved={fetchAll}
+          onUpload={(l) => setModal({ type: "upload", lease: l })} />
       )}
       {modal && modal.type === "building" && (
         <BuildingModal building={modal.building} onClose={() => { setModal(null); if (modal.building.id) setView({ name: "home" }); }} onSaved={fetchAll} />
