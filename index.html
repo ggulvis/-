@@ -70,6 +70,14 @@ function fmtMoney(v) {
 }
 function fmtDate(d) { return d || "-"; }
 function telHref(p) { return "tel:" + String(p).replace(/[^0-9+]/g, ""); }
+function fmtIns(v) { return v === true ? "가입" : v === false ? "미가입" : "-"; }
+function parseIns(v) { // 엑셀 텍스트 → boolean
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (/미가입|없|아니|x|no|false|0/i.test(s)) return false;
+  if (/가입|유|o|yes|true|1/i.test(s)) return true;
+  return null;
+}
 function normDate(v) {
   if (v === null || v === undefined || v === "") return null;
   if (v instanceof Date && !isNaN(v)) {
@@ -109,7 +117,7 @@ function findDupGroups(leases) {
   leases.forEach((l) => {
     const ek = exactKey(l);
     (exact[ek] = exact[ek] || []).push(l);
-    const sk = [l.building_id, (l.room_number || "").trim(), l.deposit ?? "", l.rent ?? ""].join("|");
+    const sk = [l.building_id, (l.room_number || "").trim(), l.deposit ?? "", l.monthly_rent ?? ""].join("|");
     (amount[sk] = amount[sk] || []).push(l);
   });
   const exactGroups = Object.values(exact).filter((g) => g.length > 1);
@@ -248,9 +256,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
     start_date: lease.start_date || "",
     end_date: lease.end_date || "",
     deposit: lease.deposit ?? "",
-    rent: lease.rent ?? "",
+    rent: lease.monthly_rent ?? "",
     maintenance_fee: lease.management_fee ?? "",
-    insurance: lease.insurance || "",
+    insurance: lease.insurance === true ? "true" : lease.insurance === false ? "false" : "",
     memo: lease.memo || "",
     extra: lease.custom_data || {},
     contract_done: !!lease.contract_done,
@@ -273,9 +281,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
       start_date: f.start_date || null,
       end_date: f.end_date || null,
       deposit: numOrNull(f.deposit),
-      rent: numOrNull(f.rent),
+      monthly_rent: numOrNull(f.rent),
       management_fee: numOrNull(f.maintenance_fee),
-      insurance: f.insurance.trim() || null,
+      insurance: f.insurance === "" ? null : f.insurance === "true",
       memo: f.memo.trim() || null,
       custom_data: f.extra,
     };
@@ -330,8 +338,13 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved }) {
         <Field label="보증금 (만원)"><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
         <Field label="월세 (만원)"><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
         <Field label="관리비 (만원)"><input className={inputCls} value={f.maintenance_fee} onChange={(e) => set("maintenance_fee", e.target.value)} inputMode="numeric" /></Field>
-        <Field label="보증보험"><input className={inputCls} value={f.insurance} onChange={(e) => set("insurance", e.target.value)} placeholder="가입 / 미가입" list="insurance-opts" /></Field>
-        <datalist id="insurance-opts"><option value="가입" /><option value="미가입" /></datalist>
+        <Field label="보증보험">
+          <select className={inputCls} value={f.insurance} onChange={(e) => set("insurance", e.target.value)}>
+            <option value="">- 미지정 -</option>
+            <option value="true">가입</option>
+            <option value="false">미가입</option>
+          </select>
+        </Field>
       </div>
       <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3">
         <label className="flex items-center gap-2.5 cursor-pointer">
@@ -420,9 +433,9 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.end_date)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap"><span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span></td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.deposit)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.rent)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.monthly_rent)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">{l.insurance || "-"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{fmtIns(l.insurance)}</td>
                 </tr>
               );
             })}
@@ -447,8 +460,8 @@ function LeaseList({ leases, buildings, canEdit, showBuilding, onRowClick }) {
               <div className="text-sm text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
                 <span>만기 {fmtDate(l.end_date)}</span>
                 {l.deposit != null && <span>보증금 {fmtMoney(l.deposit)}만</span>}
-                {l.rent != null && <span>월세 {fmtMoney(l.rent)}만</span>}
-                {l.insurance && <span>보험 {l.insurance}</span>}
+                {l.monthly_rent != null && <span>월세 {fmtMoney(l.monthly_rent)}만</span>}
+                {l.insurance != null && <span>보험 {fmtIns(l.insurance)}</span>}
               </div>
               {l.tenant_phone && (
                 <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
@@ -540,7 +553,7 @@ function DupRow({ l, bName, onDelete, busy }) {
         {l.tenant_name && <span className="ml-1.5 text-slate-600">{l.tenant_name}</span>}
         <div className="text-xs text-slate-500 flex flex-wrap gap-x-2">
           <span>{fmtDate(l.start_date)} ~ {fmtDate(l.end_date)}</span>
-          <span>보증금 {fmtMoney(l.deposit)}만 · 월세 {fmtMoney(l.rent)}만</span>
+          <span>보증금 {fmtMoney(l.deposit)}만 · 월세 {fmtMoney(l.monthly_rent)}만</span>
           {l.created_at && <span className="text-slate-400">등록 {String(l.created_at).slice(0, 10)}</span>}
         </div>
       </div>
@@ -710,9 +723,9 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
           start_date: k.start ? normDate(r[k.start]) : null,
           end_date: k.end ? normDate(r[k.end]) : null,
           deposit: k.deposit ? numOrNull(r[k.deposit]) : null,
-          rent: k.rent ? numOrNull(r[k.rent]) : null,
+          monthly_rent: k.rent ? numOrNull(r[k.rent]) : null,
           management_fee: k.fee ? numOrNull(r[k.fee]) : null,
-          insurance: k.insurance ? String(r[k.insurance]).trim() || null : null,
+          insurance: k.insurance ? parseIns(r[k.insurance]) : null,
           memo: k.memo ? String(r[k.memo]).trim() || null : null,
         };
         const rowId = k.id ? String(r[k.id]).trim() : "";
@@ -918,9 +931,9 @@ function MainApp({ session, profile, onProfileChanged }) {
         "입주날짜": l.start_date || "",
         "만기일": l.end_date || "",
         "보증금(만원)": l.deposit ?? "",
-        "월세(만원)": l.rent ?? "",
+        "월세(만원)": l.monthly_rent ?? "",
         "관리비(만원)": l.management_fee ?? "",
-        "보증보험": l.insurance || "",
+        "보증보험": l.insurance === true ? "가입" : l.insurance === false ? "미가입" : "",
         "메모": l.memo || "",
       };
     });
