@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <title>보담 임대관리</title>
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#2563eb" />
@@ -20,14 +20,27 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <style>
-  html { -webkit-tap-highlight-color: transparent; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; }
+  html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; touch-action: manipulation; }
   .scrollbar-thin::-webkit-scrollbar { height: 6px; width: 6px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 </style>
 </head>
 <body class="bg-slate-100">
 <div id="root"></div>
+
+<script>
+  /* 핀치 줌·더블탭 줌 방지 (아이패드/모바일에서 화면 확대 막기) */
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("gesturechange", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("gestureend", function (e) { e.preventDefault(); }, { passive: false });
+  var __lastTouch = 0;
+  document.addEventListener("touchend", function (e) {
+    var now = Date.now();
+    if (now - __lastTouch <= 350) { e.preventDefault(); } // 더블탭 줌 방지
+    __lastTouch = now;
+  }, { passive: false });
+</script>
 
 <script type="text/babel" data-presets="react">
 /* ============================================================
@@ -70,6 +83,7 @@ function fmtMoney(v) {
   return n.toLocaleString();
 }
 function fmtDate(d) { return d || "-"; }
+function fmtRoom(r) { return r == null ? "" : String(r).replace(/\.0+$/, ""); } // "101.0" → "101"
 function telHref(p) { return "tel:" + String(p).replace(/[^0-9+]/g, ""); }
 function fmtIns(v) { return v === true ? "가입" : v === false ? "미가입" : "-"; }
 function parseIns(v) { // 엑셀 텍스트 → boolean
@@ -539,12 +553,12 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <tr key={l.id} className="border-b last:border-0 hover:bg-blue-50 cursor-pointer"
                     onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
-                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{l.room_number}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}</td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.tenant_phone ? (
                       <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
-                         className="text-blue-600 hover:underline font-medium">📞 {l.tenant_phone}</a>
+                         className="text-blue-600 hover:underline font-medium"><span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded px-1 py-0.5 mr-1">세</span>{l.tenant_phone}</a>
                     ) : "-"}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.start_date)}</td>
@@ -587,7 +601,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   {l.vacant && <VacantTag />}
                   {l.event_id && <EventTag />}
                   {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
-                  {l.room_number}
+                  {fmtRoom(l.room_number)}
                   {canEdit && l.tenant_name && <span className="font-medium text-slate-600 ml-1.5">· {l.tenant_name}</span>}
                 </div>
                 <span className={"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 " + d.cls}>{d.label}</span>
@@ -596,13 +610,13 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <span>만기 {fmtDate(l.end_date)}</span>
                 {l.deposit != null && <span>보증금 {fmtMoney(l.deposit)}만</span>}
                 {l.monthly_rent != null && <span>월세 {fmtMoney(l.monthly_rent)}만</span>}
-                {l.insurance != null && <span>보험 {fmtIns(l.insurance)}</span>}
+                {l.insurance != null && <span>보증보험 {fmtIns(l.insurance)}</span>}
               </div>
               <div className="flex flex-wrap gap-2 mt-2 items-center">
                 {l.tenant_phone && (
                   <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
                      className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-blue-100">
-                    📞 {l.tenant_phone}
+                    <span className="text-[10px] font-bold bg-white/70 border border-blue-200 rounded px-1">세</span> {l.tenant_phone}
                   </a>
                 )}
                 {l.contract_done ? (
@@ -634,13 +648,14 @@ function BuildingModal({ building, onClose, onSaved }) {
   const [name, setName] = useState(building.name || "");
   const [address, setAddress] = useState(building.address || "");
   const [entrance, setEntrance] = useState(building.entrance_code || "");
+  const [managerPhone, setManagerPhone] = useState(building.manager_phone || "");
   const [active, setActive] = useState(building.active !== false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const save = async () => {
     if (!name.trim()) { setErr("건물명을 입력하세요."); return; }
     setBusy(true); setErr("");
-    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, active };
+    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, manager_phone: managerPhone.trim() || null, active };
     const q = isNew ? sb.from("buildings").insert(payload) : sb.from("buildings").update(payload).eq("id", building.id);
     const { error } = await q;
     setBusy(false);
@@ -658,6 +673,7 @@ function BuildingModal({ building, onClose, onSaved }) {
       <Field label="건물명"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 보담빌딩" /></Field>
       <Field label="주소"><input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="예: 서울 마포구 ..." /></Field>
       <Field label="공동현관 비밀번호"><input className={inputCls} value={entrance} onChange={(e) => setEntrance(e.target.value)} placeholder="예: #1234" /></Field>
+      <Field label="관리인 연락처 (건물 담당자 전화번호)"><input className={inputCls} value={managerPhone} onChange={(e) => setManagerPhone(e.target.value)} inputMode="tel" placeholder="예: 010-1234-5678" /></Field>
       <label className={"flex items-start gap-2.5 border rounded-xl p-3 mb-3 cursor-pointer " + (active ? "bg-white" : "bg-red-50 border-red-300")}>
         <input type="checkbox" className="w-5 h-5 accent-blue-600 mt-0.5 shrink-0" checked={active} onChange={(e) => setActive(e.target.checked)} />
         <span className="text-sm">
@@ -676,11 +692,19 @@ function BuildingModal({ building, onClose, onSaved }) {
 }
 
 /* ---------------- 프로필 모달 ---------------- */
-function ProfileModal({ profile, onClose, onSaved }) {
+function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDone }) {
+  const [tab, setTab] = useState("profile"); // profile | contracts
   const [name, setName] = useState(profile.full_name || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [openId, setOpenId] = useState(null);
+  const bName = (id) => (buildings || []).find((b) => b.id === id)?.name || "-";
+  const myName = profile.full_name || profile.email;
+  const cutoff = Date.now() - 92 * 86400000; // 최근 약 3개월
+  const myContracts = (leases || [])
+    .filter((l) => l.contract_done && l.contract_done_by === myName && l.contract_done_at && new Date(l.contract_done_at).getTime() >= cutoff)
+    .sort((a, b) => String(b.contract_done_at).localeCompare(String(a.contract_done_at)));
   const save = async () => {
     if (!name.trim() || !phone.trim()) { setErr("이름과 연락처를 입력하세요."); return; }
     setBusy(true); setErr("");
@@ -688,8 +712,60 @@ function ProfileModal({ profile, onClose, onSaved }) {
     setBusy(false);
     if (error) setErr("저장 실패: " + error.message); else { onSaved(); onClose(); }
   };
+  const tabBtn = (id, label, badge) => (
+    <button onClick={() => setTab(id)}
+      className={"px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap " + (tab === id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+      {label}{badge > 0 && <span className={"ml-1.5 text-xs " + (tab === id ? "text-blue-100" : "text-slate-400")}>{badge}</span>}
+    </button>
+  );
   return (
-    <Modal title="내 프로필" onClose={onClose}>
+    <Modal title="내 프로필" onClose={onClose} wide>
+      <div className="flex gap-2 mb-4">
+        {tabBtn("profile", "프로필")}
+        {tabBtn("contracts", "내가 한 계약", myContracts.length)}
+      </div>
+
+      {tab === "contracts" && (
+        <div className="pb-2">
+          <p className="text-xs text-slate-400 mb-2">최근 3개월 이내에 내가 계약완료한 매물입니다. 계약이 파기되면 아래에서 바로 처리할 수 있습니다.</p>
+          {myContracts.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-10">최근 3개월 내 계약완료 내역이 없습니다.</p>
+          ) : (
+            <div className="space-y-2">
+              {myContracts.map((l) => {
+                const b = (buildings || []).find((x) => x.id === l.building_id) || {};
+                const open = openId === l.id;
+                return (
+                  <div key={l.id} className="border rounded-xl bg-white overflow-hidden">
+                    <button className="w-full text-left px-3.5 py-2.5 flex items-center justify-between gap-2 active:bg-slate-50"
+                      onClick={() => setOpenId(open ? null : l.id)}>
+                      <span className="min-w-0">
+                        <b className="text-slate-800">{bName(l.building_id)} {fmtRoom(l.room_number)}</b>
+                        {l.tenant_name && <span className="text-slate-500 text-sm ml-1.5">{l.tenant_name}</span>}
+                      </span>
+                      <span className="text-xs text-emerald-600 font-semibold shrink-0">🎉 {String(l.contract_done_at).slice(0, 10)}</span>
+                    </button>
+                    {open && (
+                      <div className="px-3.5 pb-3 border-t bg-slate-50/60">
+                        <div className="text-sm text-slate-600 space-y-0.5 py-2">
+                          {b.address && <p><span className="text-slate-400">주소</span> {b.address}</p>}
+                          <p><span className="text-slate-400">입주~만기</span> {fmtDate(l.start_date)} ~ {fmtDate(l.end_date)}</p>
+                          {l.deposit != null && <p><span className="text-slate-400">보증금</span> {fmtMoney(l.deposit)}만원 {l.monthly_rent != null && <span className="ml-2"><span className="text-slate-400">월세</span> {fmtMoney(l.monthly_rent)}만원</span>}</p>}
+                          {l.tenant_phone && <p><span className="text-slate-400">연락처</span> <a className="text-blue-600 font-medium" href={telHref(l.tenant_phone)}>세 {l.tenant_phone}</a></p>}
+                        </div>
+                        <button className="w-full bg-red-50 border border-red-300 text-red-600 font-bold rounded-lg py-2.5 active:bg-red-100"
+                          onClick={() => onCancelDone(l)}>계약 파기 (계약완료 취소)</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className={tab === "profile" ? "" : "hidden"}>
       <div className="mb-4 text-sm text-slate-500">
         <p>{profile.email}</p>
         <p className="mt-1">권한: <RoleBadge role={profile.role} /></p>
@@ -700,6 +776,7 @@ function ProfileModal({ profile, onClose, onSaved }) {
       <div className="flex gap-2 pb-2">
         <button className={btnPrimary + " flex-1"} onClick={save} disabled={busy}>저장</button>
         <button className={btnGhost} onClick={onClose}>취소</button>
+      </div>
       </div>
     </Modal>
   );
@@ -797,7 +874,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
     </div>
   );
   return (
-    <Modal title={`${b.name || ""} ${lease.room_number || ""}`} onClose={onClose}>
+    <Modal title={`${b.name || ""} ${fmtRoom(lease.room_number)}`} onClose={onClose}>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span>
         {lease.move_out && <span className="text-xs font-bold bg-red-600 text-white rounded-full px-2 py-0.5">🚨 만기퇴실</span>}
@@ -816,8 +893,14 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
       </div>
       {lease.tenant_phone && (
         <a href={telHref(lease.tenant_phone)}
-           className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white font-bold rounded-xl py-3 mb-3 active:bg-blue-700">
-          📞 전화 걸기 · {lease.tenant_phone}
+           className="flex items-center justify-center gap-2 w-full bg-blue-600 text-white font-bold rounded-xl py-3 mb-2 active:bg-blue-700">
+          📞 세입자에게 전화 <span className="opacity-70">·</span> {lease.tenant_phone}
+        </a>
+      )}
+      {b.manager_phone && (
+        <a href={telHref(b.manager_phone)}
+           className="flex items-center justify-center gap-2 w-full bg-white border border-slate-300 text-slate-700 font-bold rounded-xl py-2.5 mb-3 active:bg-slate-50">
+          📞 건물 관리인에게 전화 <span className="text-slate-400">·</span> {b.manager_phone}
         </a>
       )}
       <div className="bg-slate-50 rounded-xl px-3 mb-3">
@@ -1615,6 +1698,8 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
   const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -1643,7 +1728,14 @@ function MainApp({ session, profile, onProfileChanged }) {
       (la || []).forEach((x) => { m[x.lease_id] = x.staff; });
       setAdminStaff(m);
     }
+    setLastSync(Date.now());
     setLoading(false);
+  };
+
+  const manualRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await fetchAll(); } finally { setRefreshing(false); }
   };
 
   const toggleReaction = async (l, emoji) => {
@@ -1793,22 +1885,32 @@ function MainApp({ session, profile, onProfileChanged }) {
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "archive" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "archive" })}>자료실</button>
           )}
-          {isAdmin ? (
-            <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>관리자</button>
-          ) : canApprove ? (
-            <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>가입승인</button>
-          ) : null}
+          {/* 새로고침 */}
+          <button onClick={manualRefresh} title="새로고침" aria-label="새로고침"
+            className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" className={"w-5 h-5 " + (refreshing ? "animate-spin" : "")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+          {/* 메뉴 */}
           <div className="relative">
-            <button className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 font-bold text-sm flex items-center justify-center" onClick={() => setMenuOpen((v) => !v)}>
-              {(profile.full_name || "?").slice(0, 1)}
+            <button className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-700 shrink-0" onClick={() => setMenuOpen((v) => !v)} aria-label="메뉴">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-11 bg-white border rounded-xl shadow-lg w-48 py-1 z-50" onMouseLeave={() => setMenuOpen(false)}>
+              <div className="absolute right-0 top-11 bg-white border rounded-xl shadow-lg w-56 py-1 z-50" onMouseLeave={() => setMenuOpen(false)}>
                 <div className="px-4 py-2 border-b">
                   <p className="font-semibold text-slate-800 text-sm truncate">{profile.full_name}</p>
                   <RoleBadge role={profile.role} />
+                  {lastSync && <p className="text-[11px] text-slate-400 mt-1">마지막 업데이트 {new Date(lastSync).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</p>}
                 </div>
-                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); setModal({ type: "profile" }); }}>내 프로필</button>
+                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); manualRefresh(); }}>🔄 새로고침</button>
+                {(isAdmin || canApprove) && (
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); setModal({ type: "admin" }); }}>{isAdmin ? "관리자 패널" : "가입 승인"}</button>
+                )}
+                <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); setModal({ type: "profile" }); }}>내 프로필 · 내가 한 계약</button>
                 <button className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50" onClick={() => sb.auth.signOut()}>로그아웃</button>
               </div>
             )}
@@ -2024,6 +2126,11 @@ function MainApp({ session, profile, onProfileChanged }) {
               {currentBuilding.active === false && <span className="text-xs bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold">관리중단</span>}
               {currentBuilding.address && <span className="text-sm text-slate-400 break-keep">{currentBuilding.address}</span>}
               {currentBuilding.entrance_code && <span className="text-sm font-semibold text-slate-600 bg-slate-100 border rounded-lg px-2 py-0.5">🔑 공동현관 {currentBuilding.entrance_code}</span>}
+              {currentBuilding.manager_phone && (
+                <a href={telHref(currentBuilding.manager_phone)} className="text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-0.5 active:bg-blue-100">
+                  📞 <span className="text-[10px] bg-white/70 border border-blue-200 rounded px-1">관</span> {currentBuilding.manager_phone}
+                </a>
+              )}
               <span className="text-sm text-slate-400">{(leasesByBuilding[currentBuilding.id] || []).length}건</span>
               <div className="flex-1" />
               {canEdit && (
@@ -2095,7 +2202,7 @@ function MainApp({ session, profile, onProfileChanged }) {
         <AdminPanel profile={profile} buildings={buildings} customFields={customFields} onClose={() => setModal(null)} onDataChanged={fetchAll} />
       )}
       {modal && modal.type === "profile" && (
-        <ProfileModal profile={profile} onClose={() => setModal(null)} onSaved={onProfileChanged} />
+        <ProfileModal profile={profile} leases={leases} buildings={buildings} onClose={() => setModal(null)} onSaved={onProfileChanged} onCancelDone={cancelDone} />
       )}
     </div>
   );
