@@ -794,7 +794,7 @@ function BuildingModal({ building, onClose, onSaved }) {
 
 /* ---------------- 프로필 모달 ---------------- */
 function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDone }) {
-  const [tab, setTab] = useState("profile"); // profile | contracts
+  const [tab, setTab] = useState("contracts"); // 기본 탭: 내가 한 계약 (profile | contracts)
   const [name, setName] = useState(profile.full_name || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [busy, setBusy] = useState(false);
@@ -822,8 +822,8 @@ function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDo
   return (
     <Modal title="내 프로필" onClose={onClose} wide>
       <div className="flex gap-2 mb-4">
-        {tabBtn("profile", "프로필")}
         {tabBtn("contracts", "내가 한 계약", myContracts.length)}
+        {tabBtn("profile", "프로필")}
       </div>
 
       {tab === "contracts" && (
