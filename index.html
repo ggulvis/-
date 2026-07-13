@@ -375,6 +375,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
     contract_by: lease.contract_done_by || "",
     move_out: !!lease.move_out,
     vacant: !!lease.vacant,
+    tags: Array.isArray(lease.tags) ? lease.tags : [],
   });
   const isAdminUser = me && me.role === "admin";
   const [busy, setBusy] = useState(false);
@@ -401,6 +402,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
       custom_data: f.extra,
       move_out: f.move_out,
       vacant: f.vacant,
+      tags: f.tags || [],
     };
     // 계약완료 처리: 새로 체크하면 완료자·일시 기록, 해제하면 초기화
     // 관리자는 완료자 이름을 직접 지정/수정 가능
@@ -499,6 +501,11 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
           </div>
         )}
       </div>
+      <div className="mb-3">
+        <p className="text-sm font-semibold text-slate-600 mb-1.5">매물 세부 옵션</p>
+        <TagPicker options={LEASE_TAGS} selected={f.tags} tone="lease"
+          onToggle={(v) => set("tags", (f.tags || []).includes(v) ? f.tags.filter((x) => x !== v) : [...(f.tags || []), v])} />
+      </div>
       <Field label="메모"><textarea className={inputCls} rows="3" value={f.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
       {customFields.length > 0 && (
         <div className="border-t pt-3 mt-1">
@@ -536,6 +543,47 @@ function MoveOutTag() {
 function VacantTag() {
   return <span className="text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-300 rounded px-1 py-px mr-1 align-middle">공실</span>;
 }
+
+/* 매물 세부 옵션 / 건물 옵션 어휘 (v=저장·배지 표시값, d=선택 화면 설명) */
+const LEASE_TAGS = [
+  { v: "가격협의", d: "가격협의 가능" },
+  { v: "전입신고X", d: "전입신고 불가" },
+  { v: "전기포함", d: "관리비에 전기 포함" },
+  { v: "가스포함", d: "관리비에 가스 포함" },
+  { v: "개런티즈", d: "개런티즈" },
+  { v: "짐 미리 뺌", d: "짐 미리 뺌 (공실 정리)" },
+];
+const BUILDING_OPTS = [
+  { v: "주차불가", d: "주차 불가" },
+  { v: "보증보험 가능", d: "보증보험 가능" },
+];
+/* 선택된 태그를 배지로 표시 */
+function TagChips({ items, tone }) {
+  if (!items || items.length === 0) return null;
+  const cls = tone === "building"
+    ? "bg-violet-50 text-violet-700 border-violet-200"
+    : "bg-amber-50 text-amber-700 border-amber-200";
+  return <React.Fragment>{items.map((t, i) => (
+    <span key={i} className={"inline-block text-[10px] font-semibold border rounded px-1.5 py-0.5 mr-1 mb-0.5 align-middle " + cls}>{t}</span>
+  ))}</React.Fragment>;
+}
+/* 태그 선택기 (수정 모달용) */
+function TagPicker({ options, selected, onToggle, tone }) {
+  const activeCls = tone === "building" ? "bg-violet-600 border-violet-600 text-white" : "bg-amber-500 border-amber-500 text-white";
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => {
+        const on = (selected || []).includes(o.v);
+        return (
+          <button type="button" key={o.v} onClick={() => onToggle(o.v)}
+            className={"text-xs font-semibold border rounded-full px-3 py-1.5 " + (on ? activeCls : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50")}>
+            {on ? "✓ " : ""}{o.d}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, onMarkDone, onCancelDone }) {
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
   const canCancel = (l) => canEdit || (me && l.contract_done_by === (me.full_name || me.email));
@@ -568,7 +616,10 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <tr key={l.id} className="border-b last:border-0 hover:bg-blue-50 cursor-pointer"
                     onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
-                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}</td>
+                  <td className="px-3 py-2.5 align-top">
+                    <div className="whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}</div>
+                    {l.tags && l.tags.length > 0 && <div className="mt-0.5 max-w-[180px]"><TagChips items={l.tags} tone="lease" /></div>}
+                  </td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.tenant_phone ? (
@@ -627,6 +678,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 {l.monthly_rent != null && <span>월세 {fmtMoney(l.monthly_rent)}만</span>}
                 {l.insurance != null && <span>보증보험 {fmtIns(l.insurance)}</span>}
               </div>
+              {l.tags && l.tags.length > 0 && <div className="mt-1"><TagChips items={l.tags} tone="lease" /></div>}
               <div className="flex flex-wrap gap-2 mt-2 items-center">
                 {l.tenant_phone && (
                   <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
@@ -664,13 +716,15 @@ function BuildingModal({ building, onClose, onSaved }) {
   const [address, setAddress] = useState(building.address || "");
   const [entrance, setEntrance] = useState(building.entrance_code || "");
   const [managerPhone, setManagerPhone] = useState(building.manager_phone || "");
+  const [options, setOptions] = useState(Array.isArray(building.options) ? building.options : []);
   const [active, setActive] = useState(building.active !== false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const toggleOpt = (v) => setOptions((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
   const save = async () => {
     if (!name.trim()) { setErr("건물명을 입력하세요."); return; }
     setBusy(true); setErr("");
-    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, manager_phone: managerPhone.trim() || null, active };
+    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, manager_phone: managerPhone.trim() || null, options, active };
     const q = isNew ? sb.from("buildings").insert(payload) : sb.from("buildings").update(payload).eq("id", building.id);
     const { error } = await q;
     setBusy(false);
@@ -689,6 +743,10 @@ function BuildingModal({ building, onClose, onSaved }) {
       <Field label="주소"><input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="예: 서울 마포구 ..." /></Field>
       <Field label="공동현관 비밀번호"><input className={inputCls} value={entrance} onChange={(e) => setEntrance(e.target.value)} placeholder="예: #1234" /></Field>
       <Field label="관리인 연락처 (건물 담당자 전화번호)"><input className={inputCls} value={managerPhone} onChange={(e) => setManagerPhone(e.target.value)} inputMode="tel" placeholder="예: 010-1234-5678" /></Field>
+      <div className="mb-3">
+        <p className="text-sm font-semibold text-slate-600 mb-1.5">건물 옵션</p>
+        <TagPicker options={BUILDING_OPTS} selected={options} onToggle={toggleOpt} tone="building" />
+      </div>
       <label className={"flex items-start gap-2.5 border rounded-xl p-3 mb-3 cursor-pointer " + (active ? "bg-white" : "bg-red-50 border-red-300")}>
         <input type="checkbox" className="w-5 h-5 accent-blue-600 mt-0.5 shrink-0" checked={active} onChange={(e) => setActive(e.target.checked)} />
         <span className="text-sm">
@@ -917,6 +975,12 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
            className="flex items-center justify-center gap-2 w-full bg-white border border-slate-300 text-slate-700 font-bold rounded-xl py-2.5 mb-3 active:bg-slate-50">
           📞 건물 관리인에게 전화 <span className="text-slate-400">·</span> {b.manager_phone}
         </a>
+      )}
+      {(((lease.tags && lease.tags.length) || (b.options && b.options.length)) > 0) && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          <TagChips items={lease.tags} tone="lease" />
+          <TagChips items={b.options} tone="building" />
+        </div>
       )}
       <div className="bg-slate-50 rounded-xl px-3 mb-3">
         {b.address && <Row k="주소" v={b.address} />}
@@ -2050,6 +2114,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                           {b.active === false && <span className="ml-1.5 align-middle text-[10px] bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold">관리중단</span>}
                         </h3>
                         {b.address && <p className="text-xs text-slate-400 break-keep">{b.address}</p>}
+                        {b.options && b.options.length > 0 && <div className="mt-1"><TagChips items={b.options} tone="building" /></div>}
                       </div>
                       <span className="text-xs text-slate-400 shrink-0 ml-2 mt-0.5">{bl.length}건</span>
                     </div>
@@ -2153,6 +2218,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                   📞 <span className="text-[10px] bg-white/70 border border-blue-200 rounded px-1">관</span> {currentBuilding.manager_phone}
                 </a>
               )}
+              {currentBuilding.options && currentBuilding.options.length > 0 && <TagChips items={currentBuilding.options} tone="building" />}
               <span className="text-sm text-slate-400">{(leasesByBuilding[currentBuilding.id] || []).length}건</span>
               <div className="flex-1" />
               {canEdit && (
