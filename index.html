@@ -1121,6 +1121,158 @@ function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
   );
 }
 
+/* ---------------- 자료실 (관리인 전용) ---------------- */
+function ArchiveView({ onBack }) {
+  const [tab, setTab] = useState("bi"); // bi=건물정보 | ti=문의이력 | as=AS도배
+  const [bi, setBi] = useState(null);
+  const [ti, setTi] = useState(null);
+  const [asr, setAsr] = useState(null);
+  const [q, setQ] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [b, t, a] = await Promise.all([
+        sb.from("building_info").select("*").order("seq"),
+        sb.from("tenant_inquiries").select("*").order("seq", { ascending: false }),
+        sb.from("as_records").select("*").order("seq", { ascending: false }),
+      ]);
+      if (!alive) return;
+      const e = b.error || t.error || a.error;
+      if (e) setErr(e.message);
+      setBi(b.data || []); setTi(t.data || []); setAsr(a.data || []);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const s = q.trim().toLowerCase();
+  const hit = (...vals) => !s || vals.some((v) => String(v || "").toLowerCase().includes(s));
+
+  const tabBtn = (id, label, cnt) => (
+    <button onClick={() => setTab(id)}
+      className={"px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap " + (tab === id ? "bg-blue-600 text-white" : "bg-white border text-slate-600 hover:bg-slate-50")}>
+      {label}{cnt !== null && <span className={"ml-1.5 text-xs " + (tab === id ? "text-blue-200" : "text-slate-400")}>{cnt}</span>}
+    </button>
+  );
+
+  const loading = bi === null || ti === null || asr === null;
+  const biF = (bi || []).filter((r) => hit(r.name, r.address, r.owner_name, r.owner_phone, r.telecom, r.email, r.note));
+  const tiF = (ti || []).filter((r) => hit(r.building, r.tenant_name, r.room_number, r.phone, r.inquiry_type, r.inquiry_detail, r.as_detail, r.staff, r.note));
+  const asF = (asr || []).filter((r) => hit(r.building, r.tenant_name, r.room_number, r.phone, r.work_detail, r.staff, r.note));
+
+  const InfoRow = ({ label, value, tel }) => {
+    if (!value) return null;
+    return (
+      <p className="text-sm text-slate-600 break-keep">
+        <span className="text-slate-400 mr-1.5">{label}</span>
+        {tel ? <a className="text-blue-600 font-medium" href={telHref(value)}>{value}</a> : <span className="font-medium">{value}</span>}
+      </p>
+    );
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={onBack}>←</button>
+        <h2 className="font-bold text-xl text-slate-800">📚 자료실</h2>
+        <span className="text-xs bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-2 py-0.5 font-semibold">관리인 전용</span>
+        <div className="flex-1" />
+        <input className={inputCls + " sm:max-w-xs"} placeholder="건물 · 이름 · 내용 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1">
+        {tabBtn("bi", "🏢 건물정보", bi === null ? null : biF.length)}
+        {tabBtn("ti", "💬 문의이력", ti === null ? null : tiF.length)}
+        {tabBtn("as", "🔧 AS·도배", asr === null ? null : asF.length)}
+      </div>
+      {err && <p className="text-sm text-red-600 mb-3">불러오기 실패: {err}</p>}
+      {loading && !err && <p className="text-sm text-slate-400 text-center py-10">불러오는 중...</p>}
+
+      {!loading && tab === "bi" && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {biF.length === 0 && <p className="text-sm text-slate-400 col-span-full text-center py-8">결과가 없습니다.</p>}
+          {biF.map((r) => (
+            <div key={r.id} className="bg-white rounded-2xl border shadow-sm p-4">
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <h3 className="font-bold text-slate-800 break-keep leading-snug">{r.name}</h3>
+                {r.managed === false && <span className="text-[10px] shrink-0 bg-slate-100 text-slate-500 border rounded-full px-2 py-0.5 font-semibold">관리 X</span>}
+              </div>
+              {r.address && <p className="text-xs text-slate-400 break-keep mb-2">{r.address}</p>}
+              <div className="space-y-1">
+                <InfoRow label="건물주" value={r.owner_name} />
+                <InfoRow label="전화" value={r.owner_phone} tel />
+                <InfoRow label="계좌" value={r.owner_account} />
+                <InfoRow label="통신사" value={r.telecom} />
+                <InfoRow label="통신담당" value={r.telecom_contact} />
+                <InfoRow label="관리비" value={r.mgmt_fee} />
+                <InfoRow label="KEY" value={r.key_id} />
+                <InfoRow label="관리자" value={r.manager_id} />
+                <InfoRow label="이메일" value={r.email} />
+                <InfoRow label="기타" value={r.note} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && tab === "ti" && (
+        <div className="space-y-2">
+          {tiF.length === 0 && <p className="text-sm text-slate-400 text-center py-8">결과가 없습니다.</p>}
+          {tiF.map((r) => (
+            <div key={r.id} className="bg-white rounded-2xl border p-3.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <b className="text-slate-800 break-keep">{r.building} {r.room_number}</b>
+                {r.tenant_name && <span className="text-sm text-slate-500">{r.tenant_name}</span>}
+                {r.phone && <a className="text-sm text-blue-600 font-medium" href={telHref(r.phone)}>{r.phone}</a>}
+                {r.inquiry_type && <span className="text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 font-semibold">{r.inquiry_type}</span>}
+                <div className="flex-1" />
+                <span className="text-xs text-slate-400 shrink-0">{r.inquiry_date || "-"}{r.handled_date ? " → " + r.handled_date : ""}</span>
+              </div>
+              {r.inquiry_detail && <p className="text-sm text-slate-700 mt-1.5 whitespace-pre-wrap break-keep">{r.inquiry_detail}</p>}
+              {r.as_detail && <p className="text-sm text-slate-600 mt-1 break-keep"><span className="text-slate-400">AS</span> {r.as_detail}</p>}
+              {(r.note || r.staff || r.as_cost) && (
+                <p className="text-xs text-slate-500 mt-1.5 break-keep">
+                  {r.note && <span className="mr-2">↳ {r.note}</span>}
+                  {r.staff && <span className="text-slate-400 mr-2">담당 {r.staff}</span>}
+                  {r.as_cost && <span className="text-slate-400">단가 {r.as_cost}</span>}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && tab === "as" && (
+        <div className="space-y-2">
+          {asF.length === 0 && <p className="text-sm text-slate-400 text-center py-8">결과가 없습니다.</p>}
+          {asF.map((r) => (
+            <div key={r.id} className="bg-white rounded-2xl border p-3.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <b className="text-slate-800 break-keep">{r.building} {r.room_number}</b>
+                {r.tenant_name && <span className="text-sm text-slate-500">{r.tenant_name}</span>}
+                {r.phone && (/[0-9]{4}/.test(r.phone)
+                  ? <a className="text-sm text-blue-600 font-medium" href={telHref(r.phone)}>{r.phone}</a>
+                  : <span className="text-sm text-slate-500">{r.phone}</span>)}
+                <div className="flex-1" />
+                <span className="text-xs text-slate-400 shrink-0">{r.received_date || "-"}{r.handled_date ? " → " + r.handled_date : ""}</span>
+              </div>
+              {r.work_detail && <p className="text-sm text-slate-700 mt-1.5 whitespace-pre-wrap break-keep">{r.work_detail}</p>}
+              {(r.note || r.staff || r.cost || r.paid) && (
+                <p className="text-xs text-slate-500 mt-1.5 break-keep">
+                  {r.note && <span className="mr-2">↳ {r.note}</span>}
+                  {r.staff && <span className="text-slate-400 mr-2">담당 {r.staff}</span>}
+                  {r.cost && r.cost !== "-" && <span className="text-slate-400 mr-2">비용 {isNaN(Number(r.cost)) ? r.cost : Number(r.cost).toLocaleString() + "원"}</span>}
+                  {r.paid && <span className="text-emerald-600 font-semibold">수령 {r.paid}</span>}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- 관리자 패널 ---------------- */
 function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }) {
   const isAdminU = profile.role === "admin";
@@ -1582,6 +1734,10 @@ function MainApp({ session, profile, onProfileChanged }) {
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "all" })}>전체보기</button>
           )}
+          {canManage && (
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "archive" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+              onClick={() => setView({ name: "archive" })}>자료실</button>
+          )}
           {isAdmin ? (
             <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>관리자</button>
           ) : canApprove ? (
@@ -1821,6 +1977,11 @@ function MainApp({ session, profile, onProfileChanged }) {
               })}
               buildings={buildings} canEdit={canEdit} me={profile} showBuilding={true} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
           </div>
+        )}
+
+        {/* 자료실 (관리인 전용) */}
+        {view.name === "archive" && canManage && (
+          <ArchiveView onBack={() => setView({ name: "home" })} />
         )}
       </main>
 
