@@ -503,7 +503,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
       </div>
       <div className="mb-3">
         <p className="text-sm font-semibold text-slate-600 mb-1.5">매물 세부 옵션</p>
-        <TagPicker options={LEASE_TAGS} selected={f.tags} tone="lease"
+        <TagPicker options={LEASE_TAGS} selected={f.tags} tone="lease" allowCustom
           onToggle={(v) => set("tags", (f.tags || []).includes(v) ? f.tags.filter((x) => x !== v) : [...(f.tags || []), v])} />
       </div>
       <Field label="메모"><textarea className={inputCls} rows="3" value={f.memo} onChange={(e) => set("memo", e.target.value)} /></Field>
@@ -552,6 +552,8 @@ const LEASE_TAGS = [
   { v: "가스포함", d: "관리비에 가스 포함" },
   { v: "개런티즈", d: "개런티즈" },
   { v: "짐 미리 뺌", d: "짐 미리 뺌 (공실 정리)" },
+  { v: "임차인 복비보너스", d: "임차인 복비 보너스" },
+  { v: "임대인 복비보너스", d: "임대인 복비 보너스" },
 ];
 const BUILDING_OPTS = [
   { v: "주차불가", d: "주차 불가" },
@@ -567,20 +569,46 @@ function TagChips({ items, tone }) {
     <span key={i} className={"inline-block text-[10px] font-semibold border rounded px-1.5 py-0.5 mr-1 mb-0.5 align-middle " + cls}>{t}</span>
   ))}</React.Fragment>;
 }
-/* 태그 선택기 (수정 모달용) */
-function TagPicker({ options, selected, onToggle, tone }) {
+/* 태그 선택기 (수정 모달용). allowCustom=true면 "직접입력"으로 자유 태그 추가 가능 */
+function TagPicker({ options, selected, onToggle, tone, allowCustom }) {
+  const [custom, setCustom] = useState("");
+  const sel = selected || [];
   const activeCls = tone === "building" ? "bg-violet-600 border-violet-600 text-white" : "bg-amber-500 border-amber-500 text-white";
+  const knownVals = options.map((o) => o.v);
+  const customTags = sel.filter((v) => !knownVals.includes(v));
+  const addCustom = () => {
+    const t = custom.trim();
+    if (!t) return;
+    if (!sel.includes(t)) onToggle(t);
+    setCustom("");
+  };
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((o) => {
-        const on = (selected || []).includes(o.v);
-        return (
-          <button type="button" key={o.v} onClick={() => onToggle(o.v)}
-            className={"text-xs font-semibold border rounded-full px-3 py-1.5 " + (on ? activeCls : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50")}>
-            {on ? "✓ " : ""}{o.d}
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const on = sel.includes(o.v);
+          return (
+            <button type="button" key={o.v} onClick={() => onToggle(o.v)}
+              className={"text-xs font-semibold border rounded-full px-3 py-1.5 " + (on ? activeCls : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50")}>
+              {on ? "✓ " : ""}{o.d}
+            </button>
+          );
+        })}
+        {customTags.map((t) => (
+          <button type="button" key={t} onClick={() => onToggle(t)} title="눌러서 제거"
+            className={"text-xs font-semibold border rounded-full px-3 py-1.5 " + activeCls}>
+            {t} ✕
           </button>
-        );
-      })}
+        ))}
+      </div>
+      {allowCustom && (
+        <div className="flex gap-1.5 mt-2">
+          <input className={inputCls + " !py-1.5 text-sm"} value={custom} onChange={(e) => setCustom(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+            placeholder="직접입력 (예: 복비 30만원)" />
+          <button type="button" onClick={addCustom} className="shrink-0 text-xs font-semibold bg-slate-700 hover:bg-slate-800 text-white rounded-lg px-3">추가</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1959,8 +1987,9 @@ function MainApp({ session, profile, onProfileChanged }) {
       {/* 헤더 */}
       <header className="bg-white border-b sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 flex items-center gap-2">
-          <button className="flex items-center gap-2 font-bold text-slate-800 text-lg shrink-0" onClick={() => { setView({ name: "home" }); setSearch(""); }}>
-            <span>🏢</span><span className="hidden xs:inline sm:inline">보담 임대관리</span>
+          <button className="flex items-center gap-2 font-bold text-slate-800 text-lg shrink-0" onClick={() => { setView({ name: "home" }); setSearch(""); }} title="홈으로">
+            <img src="/icon-192.png" alt="보담 홈" className="w-8 h-8 rounded-lg shrink-0" />
+            <span className="hidden xs:inline sm:inline">보담 임대관리</span>
           </button>
           <div className="flex-1" />
           {canEdit && (
