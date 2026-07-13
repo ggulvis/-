@@ -146,6 +146,28 @@ function parseContractText(t) {
   return out;
 }
 
+function fileToB64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+async function downscaleImage(file, maxDim) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    if (scale >= 1 && file.size < 3500000) return file;
+    const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+    return blob || file;
+  } catch (e) { return file; }
+}
+
 function exactKey(l) {
   return [l.building_id, (l.room_number || "").trim(), (l.tenant_name || "").trim(), l.start_date || "", l.end_date || ""].join("|");
 }
@@ -804,19 +826,34 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
 
   const handleFile = async (f2) => {
     if (!f2) return;
-    setFile(f2);
-    setPreview(URL.createObjectURL(f2));
+    const small = await downscaleImage(f2, 1600);
+    setFile(small);
+    setPreview(URL.createObjectURL(small));
     setExtracted({});
-    setOcrState("스캔 중... 0%");
+    setOcrState("🤖 AI 스캔 중... (Claude)");
     try {
-      const result = await Tesseract.recognize(f2, "kor+eng", {
-        logger: (m) => { if (m.status === "recognizing text") setOcrState(`스캔 중... ${Math.round(m.progress * 100)}%`); },
-      });
-      const parsed = parseContractText(result.data.text || "");
+      const b64 = await fileToB64(small);
+      const { data, error } = await sb.functions.invoke("parse-contract", { body: { image: b64, mime: "image/jpeg" } });
+      if (error) throw new Error(error.message || "함수 호출 실패");
+      if (data && data.error) throw new Error(data.error);
+      const ex = (data && data.extracted) || {};
+      const parsed = {};
+      ["tenant_name", "tenant_phone", "start_date", "end_date"].forEach((k) => { if (ex[k]) parsed[k] = String(ex[k]); });
+      ["deposit", "rent", "management_fee"].forEach((k) => { const n = Number(ex[k]); if (ex[k] != null && !isNaN(n)) parsed[k] = n; });
       setExtracted(parsed);
-      setOcrState(Object.keys(parsed).length ? "스캔 완료 — 아래 추출 결과는 승인 시 수정 가능합니다" : "스캔 완료 — 자동 인식된 항목이 없습니다 (승인자가 직접 입력)");
+      setOcrState(Object.keys(parsed).length ? "🤖 AI 스캔 완료 — 추출 결과는 승인 시 수정 가능합니다" : "AI 스캔 완료 — 인식된 항목이 없습니다 (승인자가 직접 입력)");
     } catch (e2) {
-      setOcrState("자동 스캔 실패 — 사진만 제출됩니다 (승인자가 직접 입력)");
+      setOcrState("AI 스캔 실패(" + e2.message + ") — 예비 스캔 시도 중...");
+      try {
+        const result = await Tesseract.recognize(small, "kor+eng", {
+          logger: (m) => { if (m.status === "recognizing text") setOcrState(`예비 스캔 중... ${Math.round(m.progress * 100)}%`); },
+        });
+        const parsed = parseContractText(result.data.text || "");
+        setExtracted(parsed);
+        setOcrState("예비 스캔 완료 (정확도 낮음) — 승인 시 반드시 확인하세요");
+      } catch (e3) {
+        setOcrState("자동 스캔 실패 — 사진만 제출됩니다 (승인자가 직접 입력)");
+      }
     }
   };
 
@@ -824,8 +861,7 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
     if (!file) { setErr("계약서 사진을 선택해주세요."); return; }
     setBusy(true); setErr("");
     try {
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-      const path = `${lease.id}/${Date.now()}.${ext}`;
+      const path = `${lease.id}/${Date.now()}.jpg`;
       const { error: upErr } = await sb.storage.from("contracts").upload(path, file);
       if (upErr) throw upErr;
       const { error } = await sb.from("contract_submissions").insert({
@@ -857,6 +893,7 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
       {ocrState && <p className="text-xs text-blue-600 font-medium mb-2">{ocrState}</p>}
       {Object.keys(extracted).length > 0 && (
         <div className="bg-slate-50 rounded-xl px-3 py-2 mb-3">
+          {exRow("tenant_name", "임차인(추정)")}
           {exRow("start_date", "입주날짜(추정)")}
           {exRow("end_date", "만기일(추정)")}
           {exRow("deposit", "보증금(추정)", true)}
