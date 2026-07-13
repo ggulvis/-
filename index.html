@@ -332,6 +332,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
     contract_done: !!lease.contract_done,
     contract_by: lease.contract_done_by || "",
     move_out: !!lease.move_out,
+    vacant: !!lease.vacant,
   });
   const isAdminUser = me && me.role === "admin";
   const [busy, setBusy] = useState(false);
@@ -357,6 +358,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
       memo: f.memo.trim() || null,
       custom_data: f.extra,
       move_out: f.move_out,
+      vacant: f.vacant,
     };
     // 계약완료 처리: 새로 체크하면 완료자·일시 기록, 해제하면 초기화
     // 관리자는 완료자 이름을 직접 지정/수정 가능
@@ -418,6 +420,11 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
         </Field>
         <Field label="호실 비밀번호"><input className={inputCls} value={f.door_code} onChange={(e) => set("door_code", e.target.value)} placeholder="예: 1234*" /></Field>
       </div>
+      <label className="flex items-center gap-2.5 mb-3 bg-sky-50 border border-sky-200 rounded-xl px-3 py-3 cursor-pointer">
+        <input type="checkbox" className="w-5 h-5 accent-sky-600" checked={f.vacant} onChange={(e) => set("vacant", e.target.checked)} />
+        <span className="text-sm font-bold text-sky-700">🏠 공실</span>
+        <span className="text-xs text-sky-500 ml-auto break-keep">만기 무관, 모든 등급에게 표시</span>
+      </label>
       <label className="flex items-center gap-2.5 mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-3 cursor-pointer">
         <input type="checkbox" className="w-5 h-5 accent-red-600" checked={f.move_out} onChange={(e) => set("move_out", e.target.checked)} />
         <span className="text-sm font-bold text-red-700">🚨 만기퇴실 (우선 처리)</span>
@@ -478,6 +485,9 @@ function EventTag() {
 function MoveOutTag() {
   return <span className="text-[10px] font-bold bg-red-600 text-white rounded px-1 py-px mr-1 align-middle">만기퇴실</span>;
 }
+function VacantTag() {
+  return <span className="text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-300 rounded px-1 py-px mr-1 align-middle">공실</span>;
+}
 function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, onMarkDone, onCancelDone }) {
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
   const canCancel = (l) => canEdit || (me && l.contract_done_by === (me.full_name || me.email));
@@ -510,7 +520,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <tr key={l.id} className="border-b last:border-0 hover:bg-blue-50 cursor-pointer"
                     onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
-                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.event_id && <EventTag />}{l.room_number}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{l.room_number}</td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.tenant_phone ? (
@@ -555,6 +565,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
               <div className="flex items-center justify-between mb-1">
                 <div className="font-bold text-slate-800">
                   {l.move_out && <MoveOutTag />}
+                  {l.vacant && <VacantTag />}
                   {l.event_id && <EventTag />}
                   {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
                   {l.room_number}
@@ -747,7 +758,7 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
 }
 
 /* ---------------- 매물 상세 팝업 (열람용) ---------------- */
-function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, onClose, onEdit, onMarkDone, onCancelDone, onUpload }) {
+function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, staff, onClose, onEdit, onMarkDone, onCancelDone, onUpload }) {
   const mayCancel = lease.contract_done && (canEdit || (me && lease.contract_done_by === (me.full_name || me.email)));
   const b = buildings.find((x) => x.id === lease.building_id) || {};
   const ev = events.find((e) => e.id === lease.event_id);
@@ -792,6 +803,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         <Row k="관리비" v={lease.management_fee != null ? fmtMoney(lease.management_fee) + "만원" : null} />
         <Row k="보증보험" v={lease.insurance == null ? null : fmtIns(lease.insurance)} />
         {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
+        {me && me.role === "admin" && staff && <Row k="담당실장 🔒" v={staff} />}
         <Row k="메모" v={lease.memo} />
       </div>
       <button className="w-full mb-2 bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-lg py-2.5"
@@ -1416,6 +1428,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [events, setEvents] = useState([]);
   const [reactions, setReactions] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all
   const [search, setSearch] = useState("");
@@ -1443,6 +1456,12 @@ function MainApp({ session, profile, onProfileChanged }) {
     setEvents(e.data || []);
     setReactions(r.data || []);
     setSubmissions(cs.data || []);
+    if (profile.role === "admin") {
+      const { data: la } = await sb.from("lease_admin").select("lease_id, staff");
+      const m = {};
+      (la || []).forEach((x) => { m[x.lease_id] = x.staff; });
+      setAdminStaff(m);
+    }
     setLoading(false);
   };
 
@@ -1683,6 +1702,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                           <div key={l.id} className="flex items-center justify-between text-sm">
                             <span className="text-slate-600 truncate">
                               {l.move_out && <MoveOutTag />}
+                              {l.vacant && <VacantTag />}
                               {l.event_id && <EventTag />}
                               <b className="text-slate-800">{l.room_number}</b>
                               {l.contract_done && <span className="ml-1">🎉</span>}
@@ -1813,7 +1833,7 @@ function MainApp({ session, profile, onProfileChanged }) {
         <BuildingModal building={modal.building} onClose={() => { setModal(null); if (modal.building.id) setView({ name: "home" }); }} onSaved={fetchAll} />
       )}
       {modal && modal.type === "detail" && (
-        <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit} me={profile}
+        <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit} me={profile} staff={adminStaff[modal.lease.id]}
           onClose={() => setModal(null)} onMarkDone={markDone} onCancelDone={cancelDone}
           onEdit={(l) => setModal({ type: "lease", lease: l })}
           onUpload={(l) => setModal({ type: "upload", lease: l })} />
