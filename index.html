@@ -53,6 +53,11 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const IS_CONFIGURED = SUPABASE_URL.startsWith("https://") && !SUPABASE_ANON_KEY.includes("YOUR_");
 const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
+/* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
+   앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
+   안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
+const APP_VERSION = "2026.07.14.1";
+
 const { useState, useEffect, useMemo, useRef } = React;
 
 /* ---------------- 유틸 ---------------- */
@@ -661,7 +666,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.deposit)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.monthly_rent)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">{fmtIns(l.insurance)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{l.insurance === true ? "가입" : "-"}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.contract_done ? (
                       <React.Fragment>
@@ -704,7 +709,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <span>만기 {fmtDate(l.end_date)}</span>
                 {l.deposit != null && <span>보증금 {fmtMoney(l.deposit)}만</span>}
                 {l.monthly_rent != null && <span>월세 {fmtMoney(l.monthly_rent)}만</span>}
-                {l.insurance != null && <span>보증보험 {fmtIns(l.insurance)}</span>}
+                {l.insurance === true && <span>보증보험 가입</span>}
               </div>
               {l.tags && l.tags.length > 0 && <div className="mt-1"><TagChips items={l.tags} tone="lease" /></div>}
               <div className="flex flex-wrap gap-2 mt-2 items-center">
@@ -1018,7 +1023,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         <Row k="보증금" v={lease.deposit != null ? fmtMoney(lease.deposit) + "만원" : null} />
         <Row k="월세" v={lease.monthly_rent != null ? fmtMoney(lease.monthly_rent) + "만원" : null} />
         <Row k="관리비" v={lease.management_fee != null ? fmtMoney(lease.management_fee) + "만원" : null} />
-        <Row k="보증보험" v={lease.insurance == null ? null : fmtIns(lease.insurance)} />
+        <Row k="보증보험" v={lease.insurance === true ? "가입" : null} />
         {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
         {me && me.role === "admin" && staff && <Row k="담당실장 🔒" v={staff} />}
         <Row k="메모" v={lease.memo} />
@@ -1807,6 +1812,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
+  const [updateReady, setUpdateReady] = useState(false); // 새 버전 배포 감지
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -1886,6 +1892,30 @@ function MainApp({ session, profile, onProfileChanged }) {
       clearInterval(timer);
     };
   }, []);
+
+  // 새 버전(코드) 배포 감지: 배포된 index.html의 APP_VERSION과 현재 실행 중 버전을 비교
+  useEffect(() => {
+    let stop = false;
+    const checkVersion = async () => {
+      try {
+        const html = await fetch("/index.html?_=" + Date.now(), { cache: "no-store" }).then((r) => r.text());
+        const m = html.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+        if (!stop && m && m[1] && m[1] !== APP_VERSION) setUpdateReady(true);
+      } catch (e) { /* 오프라인 등은 무시 */ }
+    };
+    checkVersion();
+    const onVis = () => { if (document.visibilityState === "visible") checkVersion(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    const t = setInterval(checkVersion, 180000); // 3분마다
+    return () => {
+      stop = true;
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+      clearInterval(t);
+    };
+  }, []);
+  const applyUpdate = () => { window.location.href = location.pathname + "?v=" + Date.now(); };
 
   const leasesByBuilding = useMemo(() => {
     const m = {};
@@ -1984,6 +2014,13 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   return (
     <div className="min-h-screen pb-10">
+      {/* 새 버전 업데이트 배너 */}
+      {updateReady && (
+        <div className="bg-blue-600 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 flex-wrap">
+          <span className="font-medium">✨ 새 버전이 나왔어요. 업데이트하면 최신 기능이 적용됩니다.</span>
+          <button className="bg-white text-blue-700 font-bold rounded-lg px-3 py-1 active:bg-blue-50" onClick={applyUpdate}>지금 업데이트</button>
+        </div>
+      )}
       {/* 헤더 */}
       <header className="bg-white border-b sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 flex items-center gap-2">
