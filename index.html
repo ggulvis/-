@@ -1422,8 +1422,9 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const canEdit = ["editor", "manager", "admin"].includes(profile.role);
-  const canManage = ["manager", "admin"].includes(profile.role);
+  const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
+  const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
+  const canApprove = ["editor", "manager", "admin"].includes(profile.role); // 가입 승인: 편집자 이상
   const isAdmin = profile.role === "admin";
 
   const fetchAll = async () => {
@@ -1564,7 +1565,7 @@ function MainApp({ session, profile, onProfileChanged }) {
           )}
           {isAdmin ? (
             <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>관리자</button>
-          ) : canEdit ? (
+          ) : canApprove ? (
             <button className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-3 py-1.5 rounded-lg" onClick={() => setModal({ type: "admin" })}>가입승인</button>
           ) : null}
           <div className="relative">
@@ -1636,7 +1637,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                 value={search} onChange={(e) => setSearch(e.target.value)} />
               <div className="flex items-center gap-2 text-sm text-slate-500 flex-wrap">
                 <span>건물 {buildings.length}개 · 임대 {leases.length}건</span>
-                {!canEdit && <span className="text-xs text-slate-400">(만기 6개월 이내 매물만 표시)</span>}
+                {!canEdit && <span className="text-xs text-slate-400">(만기 3개월 이내 매물만 표시)</span>}
                 {urgentCount > 0 && <span className="bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full text-xs">30일 내 만기 {urgentCount}건</span>}
               </div>
               <div className="flex-1" />
@@ -1829,7 +1830,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       {modal && modal.type === "dups" && canEdit && (
         <DuplicateModal leases={leases} buildings={buildings} onClose={() => setModal(null)} onSaved={fetchAll} />
       )}
-      {modal && modal.type === "admin" && canEdit && (
+      {modal && modal.type === "admin" && canApprove && (
         <AdminPanel profile={profile} buildings={buildings} customFields={customFields} onClose={() => setModal(null)} onDataChanged={fetchAll} />
       )}
       {modal && modal.type === "profile" && (
