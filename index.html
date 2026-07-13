@@ -108,6 +108,25 @@ function leaseSort(a, b) {
   return a.end_date < b.end_date ? -1 : a.end_date > b.end_date ? 1 : 0;
 }
 
+/* 지역 분류 (건물 주소 기반) */
+const REGION_TABS = [["all", "전체"], ["dongjak", "동작구"], ["gwanak", "관악구"], ["guro", "구로금천"]];
+const REGION_SUBS = { all: [], dongjak: ["전체", "사당동", "상도동", "기타"], gwanak: ["전체", "봉천동", "신림동"], guro: ["전체"] };
+function regionOf(b) {
+  const a = (b.address || "") + " " + (b.name || "");
+  if (/사당동|상도동|신대방동|대방동|동작구/.test(a)) return "dongjak";
+  if (/봉천동|신림동|관악구/.test(a)) return "gwanak";
+  if (/구로구|금천구|구로동|가산동|독산동/.test(a)) return "guro";
+  return "etc";
+}
+function subAreaOf(b) {
+  const a = b.address || "";
+  if (a.includes("사당동")) return "사당동";
+  if (a.includes("상도동")) return "상도동";
+  if (a.includes("봉천동")) return "봉천동";
+  if (a.includes("신림동")) return "신림동";
+  return "기타";
+}
+
 /* 중복 검출
    - 완전 중복: 건물+호수+임차인+입주일+만기일이 모두 동일 → 재업로드 등으로 생긴 사본
    - 의심 중복: 건물+호수+보증금+월세가 동일하지만 나머지가 다름 → 사람이 확인 필요
@@ -615,12 +634,13 @@ function BuildingModal({ building, onClose, onSaved }) {
   const [name, setName] = useState(building.name || "");
   const [address, setAddress] = useState(building.address || "");
   const [entrance, setEntrance] = useState(building.entrance_code || "");
+  const [active, setActive] = useState(building.active !== false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const save = async () => {
     if (!name.trim()) { setErr("건물명을 입력하세요."); return; }
     setBusy(true); setErr("");
-    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null };
+    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, active };
     const q = isNew ? sb.from("buildings").insert(payload) : sb.from("buildings").update(payload).eq("id", building.id);
     const { error } = await q;
     setBusy(false);
@@ -638,6 +658,13 @@ function BuildingModal({ building, onClose, onSaved }) {
       <Field label="건물명"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 보담빌딩" /></Field>
       <Field label="주소"><input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="예: 서울 마포구 ..." /></Field>
       <Field label="공동현관 비밀번호"><input className={inputCls} value={entrance} onChange={(e) => setEntrance(e.target.value)} placeholder="예: #1234" /></Field>
+      <label className={"flex items-start gap-2.5 border rounded-xl p-3 mb-3 cursor-pointer " + (active ? "bg-white" : "bg-red-50 border-red-300")}>
+        <input type="checkbox" className="w-5 h-5 accent-blue-600 mt-0.5 shrink-0" checked={active} onChange={(e) => setActive(e.target.checked)} />
+        <span className="text-sm">
+          <b className={active ? "text-slate-800" : "text-red-700"}>{active ? "관리 중인 건물" : "관리 중단됨"}</b>
+          <span className="block text-xs text-slate-500 mt-0.5">체크를 해제하면 관리계약 해지(관리 중단) 상태가 되어, 열람자·편집자에게는 이 건물과 소속 매물이 보이지 않습니다. 관리인·관리자는 계속 볼 수 있습니다.</span>
+        </span>
+      </label>
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
       <div className="flex gap-2 pb-2">
         <button className={btnPrimary + " flex-1"} onClick={save} disabled={busy}>저장</button>
@@ -1582,7 +1609,9 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [submissions, setSubmissions] = useState([]);
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState({ name: "home" }); // home | building | all
+  const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive
+  const [region, setRegion] = useState("all");   // 지역 탭
+  const [subArea, setSubArea] = useState("전체"); // 세부 동 탭
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1666,16 +1695,42 @@ function MainApp({ session, profile, onProfileChanged }) {
   }, [leases]);
 
   const q = search.trim().toLowerCase();
-  const filteredBuildings = useMemo(() => {
-    if (!q) return buildings;
-    return buildings.filter((b) => {
-      if (b.name.toLowerCase().includes(q)) return true;
-      return (leasesByBuilding[b.id] || []).some((l) =>
-        (l.room_number || "").toLowerCase().includes(q) ||
-        (canEdit && (l.tenant_name || "").toLowerCase().includes(q))
-      );
+  // 건물별 가장 급한 만기일 (계약완료 제외)
+  const buildingUrgency = useMemo(() => {
+    const m = {};
+    leases.forEach((l) => {
+      if (l.contract_done || !l.end_date) return;
+      if (!m[l.building_id] || l.end_date < m[l.building_id]) m[l.building_id] = l.end_date;
     });
-  }, [q, buildings, leasesByBuilding, canEdit]);
+    return m;
+  }, [leases]);
+  const filteredBuildings = useMemo(() => {
+    let list = buildings;
+    if (region !== "all") {
+      list = list.filter((b) => regionOf(b) === region);
+      if (subArea !== "전체" && (REGION_SUBS[region] || []).includes(subArea)) {
+        list = list.filter((b) => subAreaOf(b) === subArea);
+      }
+    }
+    if (q) {
+      list = list.filter((b) => {
+        if (b.name.toLowerCase().includes(q)) return true;
+        return (leasesByBuilding[b.id] || []).some((l) =>
+          (l.room_number || "").toLowerCase().includes(q) ||
+          (canEdit && (l.tenant_name || "").toLowerCase().includes(q))
+        );
+      });
+    }
+    // 만기 임박한(급한) 건물 우선 정렬 — 관리중단 건물은 맨 뒤
+    return [...list].sort((a, b) => {
+      const ia = a.active === false, ib = b.active === false;
+      if (ia !== ib) return ia ? 1 : -1;
+      const ua = buildingUrgency[a.id], ub = buildingUrgency[b.id];
+      if (ua && ub && ua !== ub) return ua < ub ? -1 : 1;
+      if (!!ua !== !!ub) return ua ? -1 : 1;
+      return a.name.localeCompare(b.name, "ko");
+    });
+  }, [q, region, subArea, buildings, leasesByBuilding, canEdit, buildingUrgency]);
 
   const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
   const dupCount = useMemo(() => {
@@ -1807,6 +1862,27 @@ function MainApp({ session, profile, onProfileChanged }) {
               <span className="font-bold text-slate-700">🎁 이벤트</span>
               <span className="text-sm text-slate-400">보러가기 →</span>
             </button>
+            {/* 지역 탭 */}
+            <div className="mb-3">
+              <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
+                {REGION_TABS.map(([id, label]) => (
+                  <button key={id} onClick={() => { setRegion(id); setSubArea("전체"); }}
+                    className={"px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap " + (region === id ? "bg-blue-600 text-white" : "bg-white border text-slate-600 hover:bg-slate-50")}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {(REGION_SUBS[region] || []).length > 0 && (
+                <div className="flex gap-1.5 mt-2 overflow-x-auto scrollbar-thin pb-1">
+                  {REGION_SUBS[region].map((s) => (
+                    <button key={s} onClick={() => setSubArea(s)}
+                      className={"px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border " + (subArea === s ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-500 hover:bg-slate-50")}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
               <input className={inputCls + " sm:max-w-xs"} placeholder={canEdit ? "건물명 · 호수 · 임차인 검색" : "건물명 · 호수 검색"}
                 value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -1841,11 +1917,14 @@ function MainApp({ session, profile, onProfileChanged }) {
                 const bl = (leasesByBuilding[b.id] || []);
                 const top3 = bl.slice(0, 3);
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border shadow-sm p-4 cursor-pointer hover:shadow-md active:bg-slate-50 transition"
+                  <div key={b.id} className={"rounded-2xl border shadow-sm p-4 cursor-pointer hover:shadow-md transition " + (b.active === false ? "bg-slate-50 opacity-70" : "bg-white active:bg-slate-50")}
                        onClick={() => setView({ name: "building", buildingId: b.id })}>
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <h3 className="font-bold text-slate-800 break-keep leading-snug">{b.name}</h3>
+                        <h3 className="font-bold text-slate-800 break-keep leading-snug">
+                          {b.name}
+                          {b.active === false && <span className="ml-1.5 align-middle text-[10px] bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold">관리중단</span>}
+                        </h3>
                         {b.address && <p className="text-xs text-slate-400 break-keep">{b.address}</p>}
                       </div>
                       <span className="text-xs text-slate-400 shrink-0 ml-2 mt-0.5">{bl.length}건</span>
@@ -1942,6 +2021,7 @@ function MainApp({ session, profile, onProfileChanged }) {
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={() => setView({ name: "home" })}>←</button>
               <h2 className="font-bold text-xl text-slate-800 break-keep">{currentBuilding.name}</h2>
+              {currentBuilding.active === false && <span className="text-xs bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold">관리중단</span>}
               {currentBuilding.address && <span className="text-sm text-slate-400 break-keep">{currentBuilding.address}</span>}
               {currentBuilding.entrance_code && <span className="text-sm font-semibold text-slate-600 bg-slate-100 border rounded-lg px-2 py-0.5">🔑 공동현관 {currentBuilding.entrance_code}</span>}
               <span className="text-sm text-slate-400">{(leasesByBuilding[currentBuilding.id] || []).length}건</span>
