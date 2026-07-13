@@ -114,12 +114,21 @@ function numOrNull(v) {
   return isNaN(n) ? null : n;
 }
 function leaseSort(a, b) {
-  // 계약완료된 매물은 우선순위가 낮으므로 항상 뒤로 (그 외에는 만기 임박순)
+  // 공실을 최상단, 계약완료는 맨 뒤, 그 외에는 만기 임박순
+  const av = !!a.vacant && !a.contract_done, bv = !!b.vacant && !b.contract_done;
+  if (av !== bv) return av ? -1 : 1;
   if (!!a.contract_done !== !!b.contract_done) return a.contract_done ? 1 : -1;
   if (!a.end_date && !b.end_date) return 0;
   if (!a.end_date) return 1;
   if (!b.end_date) return -1;
   return a.end_date < b.end_date ? -1 : a.end_date > b.end_date ? 1 : 0;
+}
+// 만기일에 n년 더하기 (연장 빠른 설정용). 기준일 없으면 오늘부터
+function addYears(dateStr, n) {
+  const base = dateStr && /^\d{4}-\d{2}-\d{2}/.test(dateStr) ? new Date(dateStr + "T00:00:00") : new Date();
+  base.setFullYear(base.getFullYear() + n);
+  const y = base.getFullYear(), m = String(base.getMonth() + 1).padStart(2, "0"), d = String(base.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 /* 지역 분류 (건물 주소 기반) */
@@ -440,7 +449,13 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
           </div>
         </Field>
         <Field label="입주날짜"><input type="date" className={inputCls} value={f.start_date} onChange={(e) => set("start_date", e.target.value)} /></Field>
-        <Field label="만기일"><input type="date" className={inputCls} value={f.end_date} onChange={(e) => set("end_date", e.target.value)} /></Field>
+        <Field label="만기일 (연장 시 아래 버튼)">
+          <input type="date" className={inputCls} value={f.end_date} onChange={(e) => set("end_date", e.target.value)} />
+          <div className="flex gap-1.5 mt-1.5">
+            <button type="button" className="flex-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md py-1.5" onClick={() => set("end_date", addYears(f.end_date, 1))}>+1년</button>
+            <button type="button" className="flex-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md py-1.5" onClick={() => set("end_date", addYears(f.end_date, 2))}>+2년</button>
+          </div>
+        </Field>
         <Field label="보증금 (만원)"><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
         <Field label="월세 (만원)"><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
         <Field label="관리비 (만원)"><input className={inputCls} value={f.maintenance_fee} onChange={(e) => set("maintenance_fee", e.target.value)} inputMode="numeric" /></Field>
@@ -458,10 +473,10 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
         <span className="text-sm font-bold text-sky-700">🏠 공실</span>
         <span className="text-xs text-sky-500 ml-auto break-keep">만기 무관, 모든 등급에게 표시</span>
       </label>
-      <label className="flex items-center gap-2.5 mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-3 cursor-pointer">
-        <input type="checkbox" className="w-5 h-5 accent-red-600" checked={f.move_out} onChange={(e) => set("move_out", e.target.checked)} />
-        <span className="text-sm font-bold text-red-700">🚨 만기퇴실 (우선 처리)</span>
-        <span className="text-xs text-red-500 ml-auto break-keep">목록 맨 위 + 열람자에게 항상 표시</span>
+      <label className="flex items-center gap-2.5 mb-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 cursor-pointer">
+        <input type="checkbox" className="w-5 h-5 accent-slate-600" checked={f.move_out} onChange={(e) => set("move_out", e.target.checked)} />
+        <span className="text-sm font-bold text-slate-700">만기퇴실</span>
+        <span className="text-xs text-slate-400 ml-auto break-keep">열람자에게도 표시</span>
       </label>
       <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-3">
         <label className="flex items-center gap-2.5 cursor-pointer">
@@ -516,7 +531,7 @@ function EventTag() {
   return <span className="text-[10px] font-bold bg-rose-100 text-rose-600 border border-rose-200 rounded px-1 py-px mr-1 align-middle">이벤트</span>;
 }
 function MoveOutTag() {
-  return <span className="text-[10px] font-bold bg-red-600 text-white rounded px-1 py-px mr-1 align-middle">만기퇴실</span>;
+  return <span className="text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-300 rounded px-1 py-px mr-1 align-middle">만기퇴실</span>;
 }
 function VacantTag() {
   return <span className="text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-300 rounded px-1 py-px mr-1 align-middle">공실</span>;
@@ -877,7 +892,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
     <Modal title={`${b.name || ""} ${fmtRoom(lease.room_number)}`} onClose={onClose}>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span>
-        {lease.move_out && <span className="text-xs font-bold bg-red-600 text-white rounded-full px-2 py-0.5">🚨 만기퇴실</span>}
+        {lease.move_out && <span className="text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-300 rounded-full px-2 py-0.5">만기퇴실</span>}
         {ev && <span className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-full px-2 py-0.5 font-semibold">🎁 {ev.title}</span>}
         {lease.contract_done && <span className="text-xs text-emerald-700 font-semibold">🎉 {lease.contract_done_by} 계약완료</span>}
       </div>
@@ -1796,6 +1811,11 @@ function MainApp({ session, profile, onProfileChanged }) {
     });
     return m;
   }, [leases]);
+  const buildingVacant = useMemo(() => {
+    const s = {};
+    leases.forEach((l) => { if (l.vacant && !l.contract_done) s[l.building_id] = true; });
+    return s;
+  }, [leases]);
   const filteredBuildings = useMemo(() => {
     let list = buildings;
     if (region !== "all") {
@@ -1813,16 +1833,18 @@ function MainApp({ session, profile, onProfileChanged }) {
         );
       });
     }
-    // 만기 임박한(급한) 건물 우선 정렬 — 관리중단 건물은 맨 뒤
+    // 정렬: 관리중단 맨 뒤 → 공실 있는 건물 최상단 → 만기 임박순 → 이름순
     return [...list].sort((a, b) => {
       const ia = a.active === false, ib = b.active === false;
       if (ia !== ib) return ia ? 1 : -1;
+      const va = !!buildingVacant[a.id], vb = !!buildingVacant[b.id];
+      if (va !== vb) return va ? -1 : 1;
       const ua = buildingUrgency[a.id], ub = buildingUrgency[b.id];
       if (ua && ub && ua !== ub) return ua < ub ? -1 : 1;
       if (!!ua !== !!ub) return ua ? -1 : 1;
       return a.name.localeCompare(b.name, "ko");
     });
-  }, [q, region, subArea, buildings, leasesByBuilding, canEdit, buildingUrgency]);
+  }, [q, region, subArea, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant]);
 
   const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
   const dupCount = useMemo(() => {
@@ -1997,8 +2019,8 @@ function MainApp({ session, profile, onProfileChanged }) {
               {canEdit && (
                 <div className="flex gap-2 flex-wrap">
                   {canManage && (
-                    <button className={btnGhost + (submissions.filter((s) => s.status === "pending").length > 0 ? " !border-emerald-400 !text-emerald-700" : "")} onClick={() => setModal({ type: "subs" })}>
-                      계약승인{submissions.filter((s) => s.status === "pending").length > 0 && <span className="ml-1.5 bg-emerald-500 text-white text-xs rounded-full px-1.5 py-0.5">{submissions.filter((s) => s.status === "pending").length}</span>}
+                    <button className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold rounded-lg px-4 py-2 text-sm" onClick={() => setModal({ type: "subs" })}>
+                      계약승인{submissions.filter((s) => s.status === "pending").length > 0 && <span className="ml-1.5 bg-white/25 text-white text-xs rounded-full px-1.5 py-0.5">{submissions.filter((s) => s.status === "pending").length}</span>}
                     </button>
                   )}
                   <button className={btnGhost + (dupCount > 0 ? " !border-amber-400 !text-amber-700" : "")} onClick={() => setModal({ type: "dups" })}>
@@ -2006,7 +2028,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                   </button>
                   <button className={btnGhost} onClick={exportExcel} disabled={leases.length === 0}>엑셀 다운로드</button>
                   <button className={btnGhost} onClick={() => setModal({ type: "building", building: {} })}>+ 건물</button>
-                  <button className={btnPrimary} onClick={() => setModal({ type: "lease", lease: {} })} disabled={buildings.length === 0}>+ 임대 등록</button>
+                  <button className={btnGhost + " disabled:opacity-50"} onClick={() => setModal({ type: "lease", lease: {} })} disabled={buildings.length === 0}>+ 임대정보 등록</button>
                 </div>
               )}
             </div>
@@ -2136,7 +2158,7 @@ function MainApp({ session, profile, onProfileChanged }) {
               {canEdit && (
                 <div className="flex gap-2">
                   {isAdmin && <button className={btnGhost} onClick={() => setModal({ type: "building", building: currentBuilding })}>건물 수정</button>}
-                  <button className={btnPrimary} onClick={() => setModal({ type: "lease", lease: { building_id: currentBuilding.id } })}>+ 임대 등록</button>
+                  <button className={btnGhost} onClick={() => setModal({ type: "lease", lease: { building_id: currentBuilding.id } })}>+ 임대정보 등록</button>
                 </div>
               )}
             </div>
