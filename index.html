@@ -573,7 +573,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.tenant_phone ? (
                       <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
-                         className="text-blue-600 hover:underline font-medium"><span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded px-1 py-0.5 mr-1">세</span>{l.tenant_phone}</a>
+                         className="text-blue-600 hover:underline font-medium">📞 <span className="text-[10px] font-bold bg-slate-100 text-slate-500 rounded px-1 py-0.5 mr-1">세</span>{l.tenant_phone}</a>
                     ) : "-"}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.start_date)}</td>
@@ -631,7 +631,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 {l.tenant_phone && (
                   <a href={telHref(l.tenant_phone)} onClick={(e) => e.stopPropagation()}
                      className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-sm px-3 py-1.5 rounded-lg active:bg-blue-100">
-                    <span className="text-[10px] font-bold bg-white/70 border border-blue-200 rounded px-1">세</span> {l.tenant_phone}
+                    📞 <span className="text-[10px] font-bold bg-white/70 border border-blue-200 rounded px-1">세</span> {l.tenant_phone}
                   </a>
                 )}
                 {l.contract_done ? (
@@ -766,7 +766,7 @@ function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDo
                           {b.address && <p><span className="text-slate-400">주소</span> {b.address}</p>}
                           <p><span className="text-slate-400">입주~만기</span> {fmtDate(l.start_date)} ~ {fmtDate(l.end_date)}</p>
                           {l.deposit != null && <p><span className="text-slate-400">보증금</span> {fmtMoney(l.deposit)}만원 {l.monthly_rent != null && <span className="ml-2"><span className="text-slate-400">월세</span> {fmtMoney(l.monthly_rent)}만원</span>}</p>}
-                          {l.tenant_phone && <p><span className="text-slate-400">연락처</span> <a className="text-blue-600 font-medium" href={telHref(l.tenant_phone)}>세 {l.tenant_phone}</a></p>}
+                          {l.tenant_phone && <p><span className="text-slate-400">연락처</span> <a className="text-blue-600 font-medium" href={telHref(l.tenant_phone)}>📞 세 {l.tenant_phone}</a></p>}
                         </div>
                         <button className="w-full bg-red-50 border border-red-300 text-red-600 font-bold rounded-lg py-2.5 active:bg-red-100"
                           onClick={() => onCancelDone(l)}>계약 파기 (계약완료 취소)</button>
