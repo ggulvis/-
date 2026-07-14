@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.14.2";
+const APP_VERSION = "2026.07.14.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1947,9 +1947,11 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const leasesByBuilding = useMemo(() => {
     const m = {};
-    leases.forEach((l) => { (m[l.building_id] = m[l.building_id] || []).push(l); });
+    // 보증보험 필터가 켜지면 가입(완료/중)된 호실만 목록·카드·건물상세에 노출
+    const src = insFilter ? leases.filter(isInsured) : leases;
+    src.forEach((l) => { (m[l.building_id] = m[l.building_id] || []).push(l); });
     return m;
-  }, [leases]);
+  }, [leases, insFilter]);
 
   const q = search.trim().toLowerCase();
   // 건물별 가장 급한 만기일 (계약완료 제외)
