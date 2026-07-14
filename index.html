@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.14.7";
+const APP_VERSION = "2026.07.14.8";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -128,10 +128,13 @@ function numOrNull(v) {
   const n = Number(String(v).replace(/[,\s원만]/g, ""));
   return isNaN(n) ? null : n;
 }
-let inactiveBuildingIds = new Set(); // 관리중단(active=false) 건물 id — 공실 최상단 우선에서 제외
+let inactiveBuildingIds = new Set(); // 관리중단(active=false) 건물 id — 모든 정렬에서 항상 후순위(맨 뒤)
 function leaseSort(a, b) {
-  // 공실을 최상단, 계약완료는 맨 뒤, 그 외에는 만기 임박순. 단 관리중단 건물 공실은 최상단으로 올리지 않음
-  const av = !!a.vacant && !a.contract_done && !inactiveBuildingIds.has(a.building_id), bv = !!b.vacant && !b.contract_done && !inactiveBuildingIds.has(b.building_id);
+  // 관리중단 건물은 모든 정렬에서 항상 맨 뒤(후순위)로
+  const ai = inactiveBuildingIds.has(a.building_id), bi = inactiveBuildingIds.has(b.building_id);
+  if (ai !== bi) return ai ? 1 : -1;
+  // 공실을 최상단, 계약완료는 맨 뒤, 그 외에는 만기 임박순
+  const av = !!a.vacant && !a.contract_done, bv = !!b.vacant && !b.contract_done;
   if (av !== bv) return av ? -1 : 1;
   if (!!a.contract_done !== !!b.contract_done) return a.contract_done ? 1 : -1;
   if (!a.end_date && !b.end_date) return 0;
@@ -2225,7 +2228,7 @@ function MainApp({ session, profile, onProfileChanged }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredBuildings.map((b) => {
                 const bl = (leasesByBuilding[b.id] || []);
-                const top3 = bl.slice(0, 3);
+                const top3 = bl.slice(0, 2);
                 return (
                   <div key={b.id} className={"rounded-2xl border shadow-sm p-4 cursor-pointer hover:shadow-md transition " + (b.active === false ? "bg-slate-50 opacity-70" : "bg-white active:bg-slate-50")}
                        onClick={() => setView({ name: "building", buildingId: b.id })}>
