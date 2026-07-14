@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.14.1";
+const APP_VERSION = "2026.07.14.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -315,15 +315,16 @@ function LoginScreen() {
   );
 }
 function RegisterScreen({ session, onDone }) {
+  const [aff, setAff] = useState("");
   const [name, setName] = useState(session.user.user_metadata?.full_name || "");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const submit = async () => {
-    if (!name.trim() || !phone.trim()) { setErr("이름과 연락처를 모두 입력해주세요."); return; }
+    if (!aff.trim() || !name.trim() || !phone.trim()) { setErr("소속·이름·연락처를 모두 입력해주세요."); return; }
     setBusy(true); setErr("");
     const { error } = await sb.from("user_roles").upsert({
-      user_id: session.user.id, email: session.user.email, full_name: name.trim(), phone: phone.trim(), role: "viewer", status: "pending",
+      user_id: session.user.id, email: session.user.email, affiliation: aff.trim(), full_name: name.trim(), phone: phone.trim(), role: "viewer", status: "pending",
     }, { onConflict: "email" });
     setBusy(false);
     if (error) setErr("등록 실패: " + error.message); else onDone();
@@ -333,8 +334,9 @@ function RegisterScreen({ session, onDone }) {
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
         <h1 className="text-xl font-bold text-slate-800 mb-1">사용자 등록</h1>
         <p className="text-sm text-slate-500 mb-6">처음 방문하셨네요. 정보를 입력하면 관리자 승인 후 이용할 수 있습니다.</p>
-        <Field label={"이름 * (예: 보담 홍길동)"}><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="보담 홍길동" /></Field>
-        <p className="text-xs text-slate-400 -mt-1 mb-3">회사명과 이름을 함께 적어주세요. 계약 축하·실적에 이 이름이 표시됩니다.</p>
+        <Field label="소속 * (회사/팀)"><input className={inputCls} value={aff} onChange={(e) => setAff(e.target.value)} placeholder="예: 보담공인중개사" /></Field>
+        <Field label="이름 *"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 홍길동" /></Field>
+        <p className="text-xs text-slate-400 -mt-1 mb-3">본인 이름을 적어주세요. 계약 축하·실적에 이 이름이 표시됩니다.</p>
         <Field label="연락처 *"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" inputMode="tel" /></Field>
         {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
         <button className={btnPrimary + " w-full py-3"} onClick={submit} disabled={busy}>{busy ? "등록 중..." : "등록 요청"}</button>
@@ -372,7 +374,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
     deposit: lease.deposit ?? "",
     rent: lease.monthly_rent ?? "",
     maintenance_fee: lease.management_fee ?? "",
-    insurance: lease.insurance === true ? "true" : lease.insurance === false ? "false" : "",
+    insurance: lease.insurance === true ? "done" : lease.insurance_pending === true ? "progress" : "",
     door_code: lease.door_code || "",
     memo: lease.memo || "",
     extra: lease.custom_data || {},
@@ -401,7 +403,8 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
       deposit: numOrNull(f.deposit),
       monthly_rent: numOrNull(f.rent),
       management_fee: numOrNull(f.maintenance_fee),
-      insurance: f.insurance === "" ? null : f.insurance === "true",
+      insurance: f.insurance === "done",
+      insurance_pending: f.insurance === "progress",
       door_code: f.door_code.trim() || null,
       memo: f.memo.trim() || null,
       custom_data: f.extra,
@@ -469,8 +472,8 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
         <Field label="보증보험">
           <select className={inputCls} value={f.insurance} onChange={(e) => set("insurance", e.target.value)}>
             <option value="">- 미지정 -</option>
-            <option value="true">가입</option>
-            <option value="false">미가입</option>
+            <option value="progress">가입중</option>
+            <option value="done">가입완료</option>
           </select>
         </Field>
         <Field label="호실 비밀번호"><input className={inputCls} value={f.door_code} onChange={(e) => set("door_code", e.target.value)} placeholder="예: 1234*" /></Field>
@@ -548,6 +551,12 @@ function MoveOutTag() {
 function VacantTag() {
   return <span className="text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-300 rounded px-1 py-px mr-1 align-middle">공실</span>;
 }
+/* 보증보험 가입완료/가입중 매물 옆에 붙는 체크 배지 (둘 다 동일 표시) */
+function InsMark() {
+  return <span title="보증보험" className="text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300 rounded px-1 py-px ml-1 align-middle">✓보증보험</span>;
+}
+/* 가입완료(insurance) 또는 가입중(insurance_pending)이면 true */
+const isInsured = (l) => !!l && (l.insurance === true || l.insurance_pending === true);
 
 /* 매물 세부 옵션 / 건물 옵션 어휘 (v=저장·배지 표시값, d=선택 화면 설명) */
 const LEASE_TAGS = [
@@ -650,7 +659,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                     onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
                   <td className="px-3 py-2.5 align-top">
-                    <div className="whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}</div>
+                    <div className="whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}{isInsured(l) && <InsMark />}</div>
                     {l.tags && l.tags.length > 0 && <div className="mt-0.5 max-w-[180px]"><TagChips items={l.tags} tone="lease" /></div>}
                   </td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
@@ -666,7 +675,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.deposit)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.monthly_rent)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">{l.insurance === true ? "가입" : "-"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{isInsured(l) ? <span className="text-emerald-700 font-semibold">✓ 가입</span> : "-"}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.contract_done ? (
                       <React.Fragment>
@@ -701,6 +710,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   {l.event_id && <EventTag />}
                   {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
                   {fmtRoom(l.room_number)}
+                  {isInsured(l) && <InsMark />}
                   {canEdit && l.tenant_name && <span className="font-medium text-slate-600 ml-1.5">· {l.tenant_name}</span>}
                 </div>
                 <span className={"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 " + d.cls}>{d.label}</span>
@@ -709,7 +719,6 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                 <span>만기 {fmtDate(l.end_date)}</span>
                 {l.deposit != null && <span>보증금 {fmtMoney(l.deposit)}만</span>}
                 {l.monthly_rent != null && <span>월세 {fmtMoney(l.monthly_rent)}만</span>}
-                {l.insurance === true && <span>보증보험 가입</span>}
               </div>
               {l.tags && l.tags.length > 0 && <div className="mt-1"><TagChips items={l.tags} tone="lease" /></div>}
               <div className="flex flex-wrap gap-2 mt-2 items-center">
@@ -800,6 +809,7 @@ function BuildingModal({ building, onClose, onSaved }) {
 /* ---------------- 프로필 모달 ---------------- */
 function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDone }) {
   const [tab, setTab] = useState("contracts"); // 기본 탭: 내가 한 계약 (profile | contracts)
+  const [aff, setAff] = useState(profile.affiliation || "");
   const [name, setName] = useState(profile.full_name || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [busy, setBusy] = useState(false);
@@ -814,9 +824,17 @@ function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDo
   const save = async () => {
     if (!name.trim() || !phone.trim()) { setErr("이름과 연락처를 입력하세요."); return; }
     setBusy(true); setErr("");
-    const { error } = await sb.from("user_roles").update({ full_name: name.trim(), phone: phone.trim() }).eq("id", profile.id);
+    const { error } = await sb.from("user_roles").update({ affiliation: aff.trim() || null, full_name: name.trim(), phone: phone.trim() }).eq("id", profile.id);
     setBusy(false);
     if (error) setErr("저장 실패: " + error.message); else { onSaved(); onClose(); }
+  };
+  const withdraw = async () => {
+    if (!confirm("정말 탈퇴하시겠어요?\n\n내 계정 정보와 권한이 삭제되고 로그아웃됩니다.\n다시 이용하려면 재가입 후 관리자 승인이 필요합니다.\n(구글 계정 자체에는 영향이 없습니다.)")) return;
+    setBusy(true); setErr("");
+    const { error } = await sb.from("user_roles").delete().eq("id", profile.id);
+    if (error) { setBusy(false); setErr("탈퇴 실패: " + error.message); return; }
+    await sb.auth.signOut();
+    window.location.reload();
   };
   const tabBtn = (id, label, badge) => (
     <button onClick={() => setTab(id)}
@@ -876,12 +894,17 @@ function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDo
         <p>{profile.email}</p>
         <p className="mt-1">권한: <RoleBadge role={profile.role} /></p>
       </div>
-      <Field label={"이름 (예: 보담 홍길동)"}><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="보담 홍길동" /></Field>
+      <Field label="소속 (회사/팀)"><input className={inputCls} value={aff} onChange={(e) => setAff(e.target.value)} placeholder="예: 보담공인중개사" /></Field>
+      <Field label={"이름 (예: 홍길동)"}><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" /></Field>
       <Field label="연락처"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></Field>
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
       <div className="flex gap-2 pb-2">
         <button className={btnPrimary + " flex-1"} onClick={save} disabled={busy}>저장</button>
         <button className={btnGhost} onClick={onClose}>취소</button>
+      </div>
+      <div className="mt-6 pt-4 border-t">
+        <button className="w-full text-sm text-red-500 hover:text-red-700 font-semibold py-2.5 rounded-lg border border-red-200 hover:bg-red-50 disabled:opacity-50" onClick={withdraw} disabled={busy}>탈퇴 (계정 삭제)</button>
+        <p className="text-xs text-slate-400 text-center mt-1.5 break-keep">탈퇴하면 내 계정 정보·권한이 삭제되고 로그아웃됩니다. 다시 이용하려면 재가입 후 관리자 승인이 필요합니다.</p>
       </div>
       </div>
     </Modal>
@@ -1023,7 +1046,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         <Row k="보증금" v={lease.deposit != null ? fmtMoney(lease.deposit) + "만원" : null} />
         <Row k="월세" v={lease.monthly_rent != null ? fmtMoney(lease.monthly_rent) + "만원" : null} />
         <Row k="관리비" v={lease.management_fee != null ? fmtMoney(lease.management_fee) + "만원" : null} />
-        <Row k="보증보험" v={lease.insurance === true ? "가입" : null} />
+        <Row k="보증보험" v={isInsured(lease) ? "가입" : null} />
         {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
         {me && me.role === "admin" && staff && <Row k="담당실장 🔒" v={staff} />}
         <Row k="메모" v={lease.memo} />
@@ -1603,6 +1626,8 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
         const bname = String(r[k.building]).trim();
         const room = String(r[k.room]).trim();
         if (!bname || !room) { invalid++; continue; }
+        const insCell = k.insurance ? String(r[k.insurance] ?? "").trim() : "";
+        const insPending = /가입중|진행/.test(insCell);
         const p = {
           building_id: bMap[bname],
           room_number: room,
@@ -1613,7 +1638,8 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
           deposit: k.deposit ? numOrNull(r[k.deposit]) : null,
           monthly_rent: k.rent ? numOrNull(r[k.rent]) : null,
           management_fee: k.fee ? numOrNull(r[k.fee]) : null,
-          insurance: k.insurance ? parseIns(r[k.insurance]) : null,
+          insurance: k.insurance ? (insPending ? false : parseIns(insCell)) : null,
+          insurance_pending: k.insurance ? insPending : null,
           memo: k.memo ? String(r[k.memo]).trim() || null : null,
         };
         const rowId = k.id ? String(r[k.id]).trim() : "";
@@ -1717,6 +1743,7 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
                 <RoleBadge role={u.status === "pending" ? "pending" : u.role} />
                 {u.id === profile.id && <span className="text-xs text-slate-400">(나)</span>}
               </div>
+              {u.affiliation && <p className="text-sm text-slate-700 mt-0.5"><span className="text-[11px] font-bold bg-slate-100 text-slate-500 rounded px-1 py-0.5 mr-1">소속</span>{u.affiliation}</p>}
               <p className="text-sm text-slate-500 mt-0.5">{u.email}{u.phone ? " · " + u.phone : ""}</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {u.status === "pending" ? (
@@ -1807,6 +1834,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive
   const [region, setRegion] = useState("all");   // 지역 탭
   const [subArea, setSubArea] = useState("전체"); // 세부 동 탭
+  const [insFilter, setInsFilter] = useState(false); // 보증보험 필터 (가입완료+가입중 매물 있는 건물만)
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1938,6 +1966,11 @@ function MainApp({ session, profile, onProfileChanged }) {
     leases.forEach((l) => { if (l.vacant && !l.contract_done) s[l.building_id] = true; });
     return s;
   }, [leases]);
+  const buildingInsured = useMemo(() => {
+    const s = {};
+    leases.forEach((l) => { if (isInsured(l)) s[l.building_id] = true; });
+    return s;
+  }, [leases]);
   const filteredBuildings = useMemo(() => {
     let list = buildings;
     if (region !== "all") {
@@ -1946,6 +1979,7 @@ function MainApp({ session, profile, onProfileChanged }) {
         list = list.filter((b) => subAreaOf(b) === subArea);
       }
     }
+    if (insFilter) list = list.filter((b) => buildingInsured[b.id]);
     if (q) {
       list = list.filter((b) => {
         if (b.name.toLowerCase().includes(q)) return true;
@@ -1966,7 +2000,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       if (!!ua !== !!ub) return ua ? -1 : 1;
       return a.name.localeCompare(b.name, "ko");
     });
-  }, [q, region, subArea, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant]);
+  }, [q, region, subArea, insFilter, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured]);
 
   const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
   const dupCount = useMemo(() => {
@@ -1997,7 +2031,7 @@ function MainApp({ session, profile, onProfileChanged }) {
         "보증금(만원)": l.deposit ?? "",
         "월세(만원)": l.monthly_rent ?? "",
         "관리비(만원)": l.management_fee ?? "",
-        "보증보험": l.insurance === true ? "가입" : l.insurance === false ? "미가입" : "",
+        "보증보험": l.insurance === true ? "가입" : l.insurance_pending === true ? "가입중" : "",
         "메모": l.memo || "",
       };
     });
@@ -2136,6 +2170,12 @@ function MainApp({ session, profile, onProfileChanged }) {
                   ))}
                 </div>
               )}
+              <div className="mt-2">
+                <button onClick={() => setInsFilter((v) => !v)}
+                  className={"px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border inline-flex items-center gap-1 " + (insFilter ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50")}>
+                  ✓ 보증보험만{insFilter && <span className="text-[10px] bg-white/25 rounded px-1">ON</span>}
+                </button>
+              </div>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
               <input className={inputCls + " sm:max-w-xs"} placeholder={canEdit ? "건물명 · 호수 · 임차인 검색" : "건물명 · 호수 검색"}
