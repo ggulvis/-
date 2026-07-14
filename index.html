@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.14.8";
+const APP_VERSION = "2026.07.14.9";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1838,6 +1838,202 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
 }
 
 /* ---------------- 메인 앱 ---------------- */
+function OrganizeView({ buildings, leases, onBack, onSaved }) {
+  const [isPC, setIsPC] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 900 : true));
+  useEffect(() => {
+    const h = () => setIsPC(window.innerWidth >= 900);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  const [region, setRegion] = useState("all");
+  const [sub, setSub] = useState("전체");
+  const [bid, setBid] = useState(null);
+
+  if (!isPC) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <button onClick={onBack} className="text-slate-400 hover:text-slate-700 text-sm mb-8">← 뒤로</button>
+        <div className="text-center text-slate-500 mt-12">
+          <div className="text-5xl mb-4">🖥️</div>
+          <p className="font-bold text-slate-700 text-lg mb-2">건물별 정리는 PC에서 사용하세요</p>
+          <p className="text-sm leading-relaxed">건물별 데이터를 표로 펼쳐 직접 입력·수정하는 기능이라 넓은 화면에 최적화돼 있어요.<br />모바일에서는 매물을 눌러 개별 수정해 주세요.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const subs = REGION_SUBS[region] || [];
+  const list = buildings.filter((b) => {
+    if (region !== "all" && regionOf(b) !== region) return false;
+    if (region !== "all" && sub !== "전체" && subAreaOf(b) !== sub) return false;
+    return true;
+  }).sort((x, y) => ((x.active === false) !== (y.active === false)) ? (x.active === false ? 1 : -1) : x.name.localeCompare(y.name, "ko"));
+  const building = buildings.find((b) => b.id === bid) || null;
+  const bLeases = building ? leases.filter((l) => l.building_id === building.id) : [];
+
+  return (
+    <div className="px-1 sm:px-2 py-3">
+      <div className="flex items-center gap-2 mb-3">
+        <button onClick={onBack} className="text-slate-400 hover:text-slate-700 text-xl px-1">←</button>
+        <h2 className="text-lg font-bold text-slate-800">건물별 정리</h2>
+        <span className="text-xs text-slate-400 hidden md:inline">건물을 골라 표에서 바로 입력·수정하세요. 모든 변경은 이력에 기록됩니다.</span>
+      </div>
+      <div className="flex gap-1.5 mb-2 flex-wrap">
+        {REGION_TABS.map(([key, label]) => (
+          <button key={key} onClick={() => { setRegion(key); setSub("전체"); setBid(null); }}
+            className={"px-3 py-1.5 rounded-lg text-sm font-semibold " + (region === key ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}>{label}</button>
+        ))}
+      </div>
+      {subs.length > 0 && (
+        <div className="flex gap-1.5 mb-3 flex-wrap">
+          {subs.map((s) => (
+            <button key={s} onClick={() => { setSub(s); setBid(null); }}
+              className={"px-2.5 py-1 rounded-full text-xs font-semibold border " + (sub === s ? "bg-slate-700 text-white border-slate-700" : "bg-white text-slate-500 border-slate-300 hover:bg-slate-50")}>{s}</button>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-4">
+        <div className="w-52 shrink-0 border-r pr-3 overflow-y-auto" style={{ maxHeight: "72vh" }}>
+          {list.length === 0 && <p className="text-sm text-slate-400 py-4">건물이 없습니다.</p>}
+          {list.map((b) => {
+            const cnt = leases.filter((l) => l.building_id === b.id).length;
+            return (
+              <button key={b.id} onClick={() => setBid(b.id)}
+                className={"w-full text-left px-3 py-2 rounded-lg mb-1 " + (bid === b.id ? "bg-blue-50 text-blue-700 font-bold" : "hover:bg-slate-50 text-slate-700")}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm break-keep">{b.name}{b.active === false && <span className="ml-1 text-[10px] text-red-500 font-semibold">중단</span>}</span>
+                  <span className="text-xs text-slate-400 shrink-0">{cnt}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex-1 min-w-0">
+          {!building ? (
+            <div className="text-slate-400 py-20 text-center">← 왼쪽에서 건물을 선택하면 표가 열립니다.</div>
+          ) : (
+            <BuildingEditTable key={building.id} building={building} rows={bLeases} onSaved={onSaved} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuildingEditTable({ building, rows, onSaved }) {
+  const COLS = [["room_number", "호수", "text"], ["tenant_name", "세입자", "text"], ["tenant_phone", "연락처", "text"], ["start_date", "입주", "date"], ["end_date", "만기", "date"], ["deposit", "보증금", "num"], ["monthly_rent", "월세", "num"], ["management_fee", "관리비", "num"], ["vacant", "공실", "bool"], ["insurance", "보증보험", "ins"], ["memo", "메모", "text"]];
+  const colW = { room_number: "80px", tenant_name: "100px", tenant_phone: "130px", start_date: "140px", end_date: "140px", deposit: "80px", monthly_rent: "70px", management_fee: "70px", vacant: "44px", insurance: "84px", memo: "180px" };
+  const sorted = [...rows].sort(leaseSort);
+  const [edits, setEdits] = useState({});
+  const [news, setNews] = useState([]);
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState("");
+  const tmp = useRef(0);
+
+  const insOf = (l) => l.insurance ? "done" : l.insurance_pending ? "progress" : "";
+  const curVal = (l, f) => {
+    const e = edits[l.id];
+    if (e && f in e) return e[f];
+    if (f === "insurance") return insOf(l);
+    if (f === "vacant") return !!l.vacant;
+    return l[f] == null ? "" : l[f];
+  };
+  const setVal = (id, f, v) => setEdits((p) => ({ ...p, [id]: { ...(p[id] || {}), [f]: v } }));
+  const dirty = (id) => edits[id] && Object.keys(edits[id]).length > 0;
+
+  const mkPayload = (get) => {
+    const p = {};
+    for (const col of COLS) {
+      const f = col[0], type = col[2];
+      if (f === "insurance") { const v = get("insurance"); p.insurance = v === "done"; p.insurance_pending = v === "progress"; }
+      else if (f === "vacant") { p.vacant = !!get("vacant"); }
+      else if (type === "num") { p[f] = numOrNull(get(f)); }
+      else { const v = String(get(f) == null ? "" : get(f)).trim(); p[f] = v || null; }
+    }
+    return p;
+  };
+
+  const saveRow = async (l) => {
+    setMsg(""); setBusy(l.id);
+    const p = mkPayload((f) => curVal(l, f));
+    if (!p.room_number) { setMsg("호수는 필수입니다."); setBusy(null); return; }
+    const { error } = await sb.from("leases").update(p).eq("id", l.id);
+    setBusy(null);
+    if (error) setMsg("저장 실패: " + error.message);
+    else { setEdits((s) => { const n = { ...s }; delete n[l.id]; return n; }); onSaved(); }
+  };
+  const saveNew = async (nr) => {
+    setMsg(""); setBusy(nr.k);
+    const p = mkPayload((f) => nr.f[f]);
+    p.building_id = building.id;
+    if (!p.room_number) { setMsg("호수는 필수입니다."); setBusy(null); return; }
+    const { error } = await sb.from("leases").insert(p);
+    setBusy(null);
+    if (error) setMsg("추가 실패: " + error.message);
+    else { setNews((s) => s.filter((x) => x.k !== nr.k)); onSaved(); }
+  };
+  const addRow = () => { tmp.current += 1; setNews((s) => [...s, { k: "n" + tmp.current, f: {} }]); };
+  const setNewVal = (k, f, v) => setNews((s) => s.map((x) => x.k === k ? { ...x, f: { ...x.f, [f]: v } } : x));
+
+  const cell = (type, value, onChange, disabled) => {
+    if (type === "bool") return <input type="checkbox" className="w-4 h-4 accent-sky-600" checked={!!value} onChange={(e) => onChange(e.target.checked)} disabled={disabled} />;
+    if (type === "ins") return (
+      <select className="border border-slate-200 rounded px-1 py-1 text-xs w-full bg-white" value={value || ""} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+        <option value="">미지정</option>
+        <option value="progress">가입중</option>
+        <option value="done">가입</option>
+      </select>
+    );
+    return <input type={type === "date" ? "date" : "text"} inputMode={type === "num" ? "numeric" : undefined}
+      className="border border-slate-200 rounded px-1.5 py-1 text-xs w-full focus:ring-1 focus:ring-blue-400 focus:outline-none"
+      value={value == null ? "" : value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />;
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <div>
+          <h3 className="font-bold text-slate-800">{building.name} <span className="text-sm text-slate-400 font-normal">{sorted.length}호실</span>{building.active === false && <span className="ml-1.5 text-[10px] bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold align-middle">관리중단</span>}</h3>
+          {building.address && <p className="text-xs text-slate-400">{building.address}</p>}
+        </div>
+        <button className={btnPrimary} onClick={addRow}>+ 새 호실 추가</button>
+      </div>
+      {msg && <p className="text-sm text-red-600 mb-2 font-medium">{msg}</p>}
+      <div className="overflow-auto border rounded-lg" style={{ maxHeight: "62vh" }}>
+        <table className="text-xs" style={{ minWidth: "100%" }}>
+          <thead className="bg-slate-50 sticky top-0 z-10">
+            <tr>
+              {COLS.map((col) => <th key={col[0]} className="px-2 py-2 font-semibold text-slate-500 text-left whitespace-nowrap border-b" style={{ minWidth: colW[col[0]] }}>{col[1]}</th>)}
+              <th className="px-2 py-2 border-b whitespace-nowrap" style={{ minWidth: "78px" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {news.map((nr) => (
+              <tr key={nr.k} className="bg-amber-50 border-b">
+                {COLS.map((col) => <td key={col[0]} className="px-1.5 py-1 align-top">{cell(col[2], nr.f[col[0]] == null ? (col[2] === "bool" ? false : "") : nr.f[col[0]], (v) => setNewVal(nr.k, col[0], v), busy === nr.k)}</td>)}
+                <td className="px-1.5 py-1 whitespace-nowrap align-top">
+                  <button className="text-emerald-600 font-bold text-xs mr-2 disabled:opacity-40" onClick={() => saveNew(nr)} disabled={busy === nr.k}>저장</button>
+                  <button className="text-slate-400 hover:text-slate-600 text-xs" onClick={() => setNews((s) => s.filter((x) => x.k !== nr.k))} disabled={busy === nr.k}>취소</button>
+                </td>
+              </tr>
+            ))}
+            {sorted.map((l) => (
+              <tr key={l.id} className={"border-b " + (dirty(l.id) ? "bg-blue-50" : "hover:bg-slate-50")}>
+                {COLS.map((col) => <td key={col[0]} className="px-1.5 py-1 align-top">{cell(col[2], curVal(l, col[0]), (v) => setVal(l.id, col[0], v), busy === l.id)}</td>)}
+                <td className="px-1.5 py-1 whitespace-nowrap align-top">
+                  {dirty(l.id) && <button className="text-blue-600 font-bold text-xs disabled:opacity-40" onClick={() => saveRow(l)} disabled={busy === l.id}>저장</button>}
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 && news.length === 0 && <tr><td colSpan={COLS.length + 1} className="text-center text-slate-400 py-8">호실이 없습니다. 오른쪽 위 "+ 새 호실 추가"로 시작하세요.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-400 mt-2">칸을 고치면 파란색으로 바뀌고 오른쪽 끝에 "저장"이 나타납니다. 보증금·월세·관리비는 만원 단위예요.</p>
+    </div>
+  );
+}
+
 function MainApp({ session, profile, onProfileChanged }) {
   const [buildings, setBuildings] = useState([]);
   const [leases, setLeases] = useState([]);
@@ -2085,6 +2281,10 @@ function MainApp({ session, profile, onProfileChanged }) {
           {canEdit && (
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "all" })}>전체보기</button>
+          )}
+          {canManage && (
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "organize" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+              onClick={() => setView({ name: "organize" })}>건물별 정리</button>
           )}
           {canManage && (
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "archive" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
@@ -2382,6 +2582,11 @@ function MainApp({ session, profile, onProfileChanged }) {
         {/* 자료실 (관리인 전용) */}
         {view.name === "archive" && canManage && (
           <ArchiveView onBack={() => setView({ name: "home" })} />
+        )}
+
+        {/* 건물별 정리 (PC 편집, 관리·매니저) */}
+        {view.name === "organize" && canManage && (
+          <OrganizeView buildings={buildings} leases={leases} onBack={() => setView({ name: "home" })} onSaved={fetchAll} />
         )}
       </main>
 
