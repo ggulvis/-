@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.15.1";
+const APP_VERSION = "2026.07.15.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -782,6 +782,7 @@ function BuildingModal({ building, onClose, onSaved }) {
   const [address, setAddress] = useState(building.address || "");
   const [entrance, setEntrance] = useState(building.entrance_code || "");
   const [managerPhone, setManagerPhone] = useState(building.manager_phone || "");
+  const [bMemo, setBMemo] = useState(building.memo || "");
   const [options, setOptions] = useState(Array.isArray(building.options) ? building.options : []);
   const [active, setActive] = useState(building.active !== false);
   const [busy, setBusy] = useState(false);
@@ -790,7 +791,7 @@ function BuildingModal({ building, onClose, onSaved }) {
   const save = async () => {
     if (!name.trim()) { setErr("건물명을 입력하세요."); return; }
     setBusy(true); setErr("");
-    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, manager_phone: managerPhone.trim() || null, options, active };
+    const payload = { name: name.trim(), address: address.trim() || null, entrance_code: entrance.trim() || null, manager_phone: managerPhone.trim() || null, memo: bMemo.trim() || null, options, active };
     const q = isNew ? sb.from("buildings").insert(payload) : sb.from("buildings").update(payload).eq("id", building.id);
     const { error } = await q;
     setBusy(false);
@@ -809,6 +810,7 @@ function BuildingModal({ building, onClose, onSaved }) {
       <Field label="주소"><input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="예: 서울 마포구 ..." /></Field>
       <Field label="공동현관 비밀번호"><input className={inputCls} value={entrance} onChange={(e) => setEntrance(e.target.value)} placeholder="예: #1234" /></Field>
       <Field label="관리인 연락처 (건물 담당자 전화번호)"><input className={inputCls} value={managerPhone} onChange={(e) => setManagerPhone(e.target.value)} inputMode="tel" placeholder="예: 010-1234-5678" /></Field>
+      <Field label="건물 메모 (주차·계약규칙·입금계좌 등)"><textarea className={inputCls + " min-h-[70px]"} value={bMemo} onChange={(e) => setBMemo(e.target.value)} placeholder="예: 주차 1대 가능 · 보증금은 신협 계좌로 입금" /></Field>
       <div className="mb-3">
         <p className="text-sm font-semibold text-slate-600 mb-1.5">건물 옵션</p>
         <TagPicker options={BUILDING_OPTS} selected={options} onToggle={toggleOpt} tone="building" />
@@ -1064,6 +1066,7 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
       )}
       <div className="bg-slate-50 rounded-xl px-3 mb-3">
         {b.address && <Row k="주소" v={b.address} />}
+        {b.memo && <Row k="건물 메모" v={"📌 " + b.memo} />}
         {canEdit && <Row k="임차인" v={lease.tenant_name} />}
         <Row k="입주날짜" v={lease.start_date} />
         <Row k="만기일" v={lease.end_date} />
@@ -2008,6 +2011,7 @@ function BuildingEditTable({ building, rows, onSaved }) {
         <div>
           <h3 className="font-bold text-slate-800">{building.name} <span className="text-sm text-slate-400 font-normal">{sorted.length}호실</span>{building.active === false && <span className="ml-1.5 text-[10px] bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold align-middle">관리중단</span>}</h3>
           {building.address && <p className="text-xs text-slate-400">{building.address}</p>}
+          {building.memo && <p className="text-xs text-amber-700 break-keep">📌 {building.memo}</p>}
         </div>
         <button className={btnPrimary} onClick={addRow}>+ 새 호실 추가</button>
       </div>
@@ -2572,6 +2576,9 @@ function MainApp({ session, profile, onProfileChanged }) {
                 </div>
               )}
             </div>
+            {currentBuilding.memo && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 break-keep">📌 {currentBuilding.memo}</p>
+            )}
             <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} me={profile} showBuilding={false} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
           </div>
         )}
