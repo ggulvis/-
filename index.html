@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.14.9";
+const APP_VERSION = "2026.07.15.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -388,6 +388,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
     deposit: lease.deposit ?? "",
     rent: lease.monthly_rent ?? "",
     maintenance_fee: lease.management_fee ?? "",
+    hope_deposit: lease.hope_deposit ?? "",
+    hope_rent: lease.hope_rent ?? "",
+    hope_fee: lease.hope_fee ?? "",
     insurance: lease.insurance === true ? "done" : lease.insurance_pending === true ? "progress" : "",
     door_code: lease.door_code || "",
     memo: lease.memo || "",
@@ -417,6 +420,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
       deposit: numOrNull(f.deposit),
       monthly_rent: numOrNull(f.rent),
       management_fee: numOrNull(f.maintenance_fee),
+      hope_deposit: numOrNull(f.hope_deposit),
+      hope_rent: numOrNull(f.hope_rent),
+      hope_fee: numOrNull(f.hope_fee),
       insurance: f.insurance === "done",
       insurance_pending: f.insurance === "progress",
       door_code: f.door_code.trim() || null,
@@ -483,6 +489,9 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
         <Field label={(f.vacant ? "희망 " : "") + "보증금 (만원)"}><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
         <Field label={(f.vacant ? "희망 " : "") + "월세 (만원)"}><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
         <Field label={(f.vacant ? "희망 " : "") + "관리비 (만원)"}><input className={inputCls} value={f.maintenance_fee} onChange={(e) => set("maintenance_fee", e.target.value)} inputMode="numeric" /></Field>
+        <Field label="희망 보증금 (만원)"><input className={inputCls} value={f.hope_deposit} onChange={(e) => set("hope_deposit", e.target.value)} inputMode="numeric" placeholder="열람자에게 공개될 매물가" /></Field>
+        <Field label="희망 월세 (만원)"><input className={inputCls} value={f.hope_rent} onChange={(e) => set("hope_rent", e.target.value)} inputMode="numeric" /></Field>
+        <Field label="희망 관리비 (만원)"><input className={inputCls} value={f.hope_fee} onChange={(e) => set("hope_fee", e.target.value)} inputMode="numeric" /></Field>
         <Field label="보증보험">
           <select className={inputCls} value={f.insurance} onChange={(e) => set("insurance", e.target.value)}>
             <option value="">- 미지정 -</option>
@@ -686,9 +695,9 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.start_date)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{fmtDate(l.end_date)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap"><span className={"text-xs font-bold px-2 py-0.5 rounded-full " + d.cls}>{d.label}</span></td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.deposit)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.monthly_rent)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.deposit)}{l.hope_deposit != null && <div className="text-[11px] text-sky-600 font-medium">희망 {fmtMoney(l.hope_deposit)}</div>}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.monthly_rent)}{l.hope_rent != null && <div className="text-[11px] text-sky-600 font-medium">희망 {fmtMoney(l.hope_rent)}</div>}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-right">{fmtMoney(l.management_fee)}{l.hope_fee != null && <div className="text-[11px] text-sky-600 font-medium">희망 {fmtMoney(l.hope_fee)}</div>}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">{isInsured(l) ? <span className="text-emerald-700 font-semibold">✓ 가입</span> : "-"}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {l.contract_done ? (
@@ -731,8 +740,9 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
               </div>
               <div className="text-sm text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
                 <span>만기 {fmtDate(l.end_date)}</span>
-                {l.deposit != null && <span>{l.vacant ? "희망 " : ""}보증금 {fmtKRW(l.deposit)}</span>}
-                {l.monthly_rent != null && <span>{l.vacant ? "희망 " : ""}월세 {fmtKRW(l.monthly_rent)}</span>}
+                {l.deposit != null && <span>{(l.vacant || l._hope) ? "희망 " : ""}보증금 {fmtKRW(l.deposit)}</span>}
+                {l.monthly_rent != null && <span>{(l.vacant || l._hope) ? "희망 " : ""}월세 {fmtKRW(l.monthly_rent)}</span>}
+                {l.hope_deposit != null && <span className="text-sky-600 font-medium">희망 {fmtKRW(l.hope_deposit)}{l.hope_rent ? " / 월 " + fmtKRW(l.hope_rent) : ""}</span>}
               </div>
               {l.tags && l.tags.length > 0 && <div className="mt-1"><TagChips items={l.tags} tone="lease" /></div>}
               <div className="flex flex-wrap gap-2 mt-2 items-center">
@@ -1057,9 +1067,12 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         {canEdit && <Row k="임차인" v={lease.tenant_name} />}
         <Row k="입주날짜" v={lease.start_date} />
         <Row k="만기일" v={lease.end_date} />
-        <Row k={(lease.vacant ? "희망 " : "") + "보증금"} v={lease.deposit != null ? fmtKRW(lease.deposit) : null} />
-        <Row k={(lease.vacant ? "희망 " : "") + "월세"} v={lease.monthly_rent != null ? fmtKRW(lease.monthly_rent) : null} />
-        <Row k={(lease.vacant ? "희망 " : "") + "관리비"} v={lease.management_fee != null ? fmtKRW(lease.management_fee) : null} />
+        <Row k={((lease.vacant || lease._hope) ? "희망 " : "") + "보증금"} v={lease.deposit != null ? fmtKRW(lease.deposit) : null} />
+        <Row k={((lease.vacant || lease._hope) ? "희망 " : "") + "월세"} v={lease.monthly_rent != null ? fmtKRW(lease.monthly_rent) : null} />
+        <Row k={((lease.vacant || lease._hope) ? "희망 " : "") + "관리비"} v={lease.management_fee != null ? fmtKRW(lease.management_fee) : null} />
+        {(lease.hope_deposit != null || lease.hope_rent != null || lease.hope_fee != null) && (
+          <Row k="희망가 (열람자 공개)" v={[lease.hope_deposit != null ? "보증금 " + fmtKRW(lease.hope_deposit) : null, lease.hope_rent != null && lease.hope_rent !== 0 ? "월세 " + fmtKRW(lease.hope_rent) : null, lease.hope_fee != null ? "관리비 " + fmtKRW(lease.hope_fee) : null].filter(Boolean).join(" · ")} />
+        )}
         <Row k="보증보험" v={isInsured(lease) ? "가입" : null} />
         {customFields.map((cf) => <Row key={cf.id} k={cf.field_label} v={(lease.custom_data || {})[cf.field_key]} />)}
         {me && me.role === "admin" && staff && <Row k="담당실장 🔒" v={staff} />}
@@ -1921,8 +1934,8 @@ function OrganizeView({ buildings, leases, onBack, onSaved }) {
 }
 
 function BuildingEditTable({ building, rows, onSaved }) {
-  const COLS = [["room_number", "호수", "text"], ["tenant_name", "세입자", "text"], ["tenant_phone", "연락처", "text"], ["start_date", "입주", "date"], ["end_date", "만기", "date"], ["deposit", "보증금", "num"], ["monthly_rent", "월세", "num"], ["management_fee", "관리비", "num"], ["vacant", "공실", "bool"], ["insurance", "보증보험", "ins"], ["memo", "메모", "text"]];
-  const colW = { room_number: "80px", tenant_name: "100px", tenant_phone: "130px", start_date: "140px", end_date: "140px", deposit: "80px", monthly_rent: "70px", management_fee: "70px", vacant: "44px", insurance: "84px", memo: "180px" };
+  const COLS = [["room_number", "호수", "text"], ["tenant_name", "세입자", "text"], ["tenant_phone", "연락처", "text"], ["start_date", "입주", "date"], ["end_date", "만기", "date"], ["deposit", "보증금", "num"], ["monthly_rent", "월세", "num"], ["management_fee", "관리비", "num"], ["hope_deposit", "희망보증", "num"], ["hope_rent", "희망월세", "num"], ["hope_fee", "희망관리", "num"], ["vacant", "공실", "bool"], ["insurance", "보증보험", "ins"], ["memo", "메모", "text"]];
+  const colW = { room_number: "80px", tenant_name: "100px", tenant_phone: "130px", start_date: "140px", end_date: "140px", deposit: "80px", monthly_rent: "70px", management_fee: "70px", hope_deposit: "70px", hope_rent: "70px", hope_fee: "70px", vacant: "44px", insurance: "84px", memo: "180px" };
   const sorted = [...rows].sort(leaseSort);
   const [edits, setEdits] = useState({});
   const [news, setNews] = useState([]);
@@ -2071,7 +2084,13 @@ function MainApp({ session, profile, onProfileChanged }) {
     ]);
     inactiveBuildingIds = new Set((b.data || []).filter((x) => x.active === false).map((x) => x.id));
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
-    setLeases((l.data || []).sort(leaseSort));
+    // 희망가(hope_*)가 있는 매물: 관리인 미만 등급에게는 실제 계약금액 대신 희망가로 표시
+    const shaped = (l.data || []).map((x) => {
+      if (canManage) return x;
+      if (x.hope_deposit == null && x.hope_rent == null && x.hope_fee == null) return x;
+      return { ...x, deposit: x.hope_deposit, monthly_rent: x.hope_rent, management_fee: x.hope_fee, hope_deposit: null, hope_rent: null, hope_fee: null, _hope: true };
+    });
+    setLeases(shaped.sort(leaseSort));
     setCustomFields(f.data || []);
     setEvents(e.data || []);
     setReactions(r.data || []);
