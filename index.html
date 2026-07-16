@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.16.3";
+const APP_VERSION = "2026.07.16.4";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1415,6 +1415,388 @@ function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
   );
 }
 
+/* ---------------- 꽝 없는 룰렛 이벤트 ---------------- */
+const ROULETTE_START = "2026-07-17";
+const ROULETTE_END = "2026-09-28";
+const ROULETTE_PRIZES = [150, 50, 50, 30, 30, 30, 10, 10, 10, 10, 10, 10]; // 만원 · 총 400
+const ROULETTE_COLORS = { 150: "#f59e0b", 50: "#f43f5e", 30: "#0ea5e9", 10: "#10b981" };
+
+function rouletteToday() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+function RoulettePractice() {
+  const [stage, setStage] = useState("idle"); // idle | ask | pick | wheel | done
+  const [count, setCount] = useState(0);
+  const [lie, setLie] = useState(false);
+  const [picked, setPicked] = useState([]);
+  const [prizes, setPrizes] = useState([]);
+  const [consumed, setConsumed] = useState([]);
+  const [turn, setTurn] = useState(0);
+  const [banner, setBanner] = useState("");
+  const [bannerHot, setBannerHot] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [myResults, setMyResults] = useState([]);
+  const wheelRef = useRef(null);
+  const rotRef = useRef(0);
+  const pausedRef = useRef(false);
+  const stopRef = useRef(false);
+  const genRef = useRef(0);
+  const audioRef = useRef(null);
+
+  const ac = () => {
+    if (!audioRef.current) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (C) try { audioRef.current = new C(); } catch (e) {}
+    }
+    if (audioRef.current && audioRef.current.state === "suspended") try { audioRef.current.resume(); } catch (e) {}
+    return audioRef.current;
+  };
+  const beep = (freq, dur, type, vol, delay) => {
+    const ctx = ac(); if (!ctx) return;
+    try {
+      const t = ctx.currentTime + (delay || 0);
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = type || "square"; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.05, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + dur);
+    } catch (e) {}
+  };
+  const tickSound = () => beep(1250, 0.04, "square", 0.035);
+  const thud = () => beep(200, 0.16, "sine", 0.09);
+  const fanfare = () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.2, "triangle", 0.08, i * 0.12));
+
+  const hardReset = (next) => {
+    genRef.current++;
+    stopRef.current = true; pausedRef.current = false;
+    setRunning(false); setPaused(false); setCount(0); setLie(false); setPicked([]);
+    setPrizes([]); setConsumed([]); setTurn(0); setBanner(""); setBannerHot(false);
+    setTotal(0); setMyResults([]);
+    rotRef.current = 0;
+    setStage(next);
+  };
+
+  // 일시정지를 반영하는 대기
+  const wait = (ms) => new Promise((res) => {
+    let left = ms; let last = performance.now();
+    const step = (now) => {
+      if (stopRef.current) return res();
+      if (!pausedRef.current) left -= now - last;
+      last = now;
+      if (left <= 0) return res();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+
+  // seg(0~11) 칸이 상단 포인터에 오도록 감속 회전
+  const spinTo = (seg, duration, extraTurns) => new Promise((res) => {
+    const startRot = ((rotRef.current % 360) + 360) % 360;
+    const targetMod = (360 - (seg * 30 + 15) + 360) % 360;
+    const jitter = Math.random() * 20 - 10; // 칸(30°) 안에서만 흔들림
+    const final = startRot + 360 * extraTurns + ((targetMod - startRot + 360) % 360) + jitter;
+    let elapsed = 0; let last = performance.now();
+    let lastTick = Math.floor(startRot / 30);
+    const ease = (x) => 1 - Math.pow(1 - x, 3);
+    const frame = (now) => {
+      if (stopRef.current) return res();
+      if (!pausedRef.current) elapsed += now - last;
+      last = now;
+      const p = Math.min(1, elapsed / duration);
+      const rot = startRot + (final - startRot) * ease(p);
+      rotRef.current = rot;
+      if (wheelRef.current) wheelRef.current.style.transform = "rotate(" + rot + "deg)";
+      const ti = Math.floor(rot / 30);
+      if (ti !== lastTick) { lastTick = ti; tickSound(); }
+      if (p >= 1) return res();
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+
+  const startWheel = () => {
+    const arr = [...ROULETTE_PRIZES];
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; }
+    setPrizes(arr); setConsumed([]); setTotal(0); setMyResults([]); setTurn(0);
+    setBanner("👇 룰렛을 터치하세요!"); setBannerHot(false);
+    rotRef.current = 0;
+    setStage("wheel");
+  };
+
+  const runAll = async () => {
+    if (running) return;
+    ac(); // 사용자 제스처 시점에 오디오 활성화
+    const g = genRef.current;
+    stopRef.current = false; pausedRef.current = false;
+    setPaused(false); setRunning(true);
+    const used = [];
+    let sum = 0;
+    for (let t = 1; t <= 12; t++) {
+      if (stopRef.current || genRef.current !== g) break;
+      setTurn(t);
+      const mine = picked.includes(t);
+      setBannerHot(mine);
+      setBanner(mine ? "🔥 당신의 순서입니다!" : t + "번째 참가자 순서...");
+      await wait(mine ? 1200 : 500);
+      if (stopRef.current || genRef.current !== g) break;
+      const remaining = ROULETTE_PRIZES.map((_, i) => i).filter((i) => used.indexOf(i) < 0);
+      const seg = remaining[Math.floor(Math.random() * remaining.length)];
+      await spinTo(seg, mine ? 7000 : 2600, mine ? 8 : 3);
+      if (stopRef.current || genRef.current !== g) break;
+      used.push(seg);
+      setConsumed(used.slice());
+      const prize = prizes[seg];
+      if (mine) {
+        sum += prize; setTotal(sum);
+        setMyResults((r) => [...r, { turn: t, prize }]);
+        fanfare();
+        setBanner("🎊 " + prize + "만원 당첨!");
+      } else {
+        thud();
+        setBanner(t + "번째 참가자: " + prize + "만원");
+      }
+      await wait(mine ? 1800 : 1000);
+    }
+    if (genRef.current !== g) return;
+    setRunning(false);
+    setStage("done");
+  };
+
+  const pt = (ang, r) => [r * Math.cos(ang * Math.PI / 180), r * Math.sin(ang * Math.PI / 180)];
+  const nums = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  return (
+    <div className="mt-4 border-t border-amber-100 pt-3">
+      {stage === "idle" && (
+        <button onClick={() => hardReset("ask")}
+          className="w-full rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 active:bg-amber-100 py-3 font-bold text-amber-700">
+          🎰 룰렛 연습하기
+        </button>
+      )}
+      {stage !== "idle" && (
+        <p className="text-[11px] text-slate-400 mb-2">🎮 연습 게임 — 실제 추첨과 무관해요. 상금 구성만 동일!</p>
+      )}
+
+      {stage === "ask" && (
+        <div className="text-center">
+          <p className="font-bold text-slate-700 mb-2">당신은 몇 개의 방을 계약했나요?</p>
+          {lie && <p className="text-sm font-bold text-rose-600 mb-2 animate-bounce">뻥치지마… 진정하고 다시 써! 🤥</p>}
+          <div className="grid grid-cols-6 gap-1.5 max-w-xs mx-auto">
+            {nums.map((n) => (
+              <button key={n}
+                onClick={() => { if (n >= 10) { setLie(true); } else { setLie(false); setCount(n); setPicked([]); setStage("pick"); } }}
+                className="rounded-lg border border-slate-300 bg-white py-2 text-sm font-bold text-slate-700 hover:bg-amber-50 active:scale-95">{n}</button>
+            ))}
+          </div>
+          <button className="text-xs text-slate-400 mt-3 underline" onClick={() => hardReset("idle")}>닫기</button>
+        </div>
+      )}
+
+      {stage === "pick" && (
+        <div className="text-center">
+          <p className="font-bold text-slate-700 mb-1">몇 번째로 룰렛을 돌리실 건가요?</p>
+          <p className="text-sm text-slate-500 mb-2">남은횟수 : <b className="text-rose-600">{count - picked.length}</b></p>
+          <div className="grid grid-cols-6 gap-1.5 max-w-xs mx-auto">
+            {nums.map((n) => {
+              const on = picked.indexOf(n) >= 0;
+              return (
+                <button key={n}
+                  onClick={() => setPicked(on ? picked.filter((x) => x !== n) : picked.length < count ? [...picked, n] : picked)}
+                  className={"rounded-lg border py-2 text-sm font-bold active:scale-95 " +
+                    (on ? "border-rose-400 bg-rose-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-amber-50")}>{n}</button>
+              );
+            })}
+          </div>
+          <button className={btnPrimary + " mt-3 w-full max-w-xs"} disabled={picked.length !== count} onClick={startWheel}>
+            {picked.length === count ? "이 순서로 도전! 🎰" : "순서를 " + (count - picked.length) + "개 더 선택하세요"}
+          </button>
+        </div>
+      )}
+
+      {stage === "wheel" && (
+        <div className="text-center select-none">
+          <p className={"font-bold mb-2 " + (bannerHot ? "text-rose-600 text-lg" : "text-slate-700")}>{banner}</p>
+          <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto cursor-pointer" onClick={() => { if (!running) runAll(); }}>
+            <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 z-10 text-2xl drop-shadow">🔻</div>
+            <svg viewBox="-100 -100 200 200" className="w-full h-full">
+              <g ref={wheelRef} style={{ transformOrigin: "0px 0px" }}>
+                {prizes.map((p, i) => {
+                  const a0 = -90 + i * 30, a1 = a0 + 30, mid = a0 + 15;
+                  const s = pt(a0, 96), e = pt(a1, 96), l = pt(mid, 62);
+                  const used = consumed.indexOf(i) >= 0;
+                  return (
+                    <g key={i}>
+                      <path d={"M0 0 L" + s[0] + " " + s[1] + " A96 96 0 0 1 " + e[0] + " " + e[1] + " Z"}
+                        fill={used ? "#e2e8f0" : ROULETTE_COLORS[p]} stroke="#fff" strokeWidth="1.5" />
+                      <text x={l[0]} y={l[1]} fill={used ? "#94a3b8" : "#fff"} fontSize="11" fontWeight="bold"
+                        textAnchor="middle" dominantBaseline="middle"
+                        transform={"rotate(" + (mid + 90) + " " + l[0] + " " + l[1] + ")"}>{p}만</text>
+                    </g>
+                  );
+                })}
+              </g>
+              <circle r="24" fill="#fff" stroke="#f59e0b" strokeWidth="3" />
+              <text y="1" textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="bold" fill="#b45309">
+                {running ? turn + " / 12" : "터치!"}
+              </text>
+            </svg>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">내 순서: {picked.slice().sort((a, b) => a - b).join(", ")}번째</p>
+          <p className="text-lg font-extrabold text-amber-600">누적 상금: {total}만원</p>
+          {running && (
+            <div className="flex gap-2 justify-center mt-2">
+              <button className={btnGhost} onClick={() => { const nv = !pausedRef.current; pausedRef.current = nv; setPaused(nv); }}>
+                {paused ? "▶ 계속" : "⏸ 일시정지"}
+              </button>
+              <button className={btnDanger} onClick={() => { pausedRef.current = false; setPaused(false); stopRef.current = true; }}>그만하기</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {stage === "done" && (
+        <div className="text-center">
+          <div className="text-3xl mb-1">🎊</div>
+          <p className="font-bold text-slate-800">연습 결과</p>
+          <p className="text-2xl font-extrabold text-amber-600 my-1">{total}만원</p>
+          {myResults.length > 0 ? (
+            <p className="text-sm text-slate-500 mb-3">{myResults.map((r) => r.turn + "번째 → " + r.prize + "만원").join(" · ")}</p>
+          ) : (
+            <p className="text-sm text-slate-400 mb-3">돌린 룰렛이 없어요.</p>
+          )}
+          <div className="flex gap-2 justify-center pb-1">
+            <button className={btnPrimary} onClick={() => hardReset("ask")}>다시하기</button>
+            <button className={btnGhost} onClick={() => hardReset("idle")}>닫기</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RouletteEventCard({ slots, me, onChanged }) {
+  const [claim, setClaim] = useState(null);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (!slots || slots.length === 0) return null; // 테이블 미생성 시 숨김
+
+  const today = rouletteToday();
+  const doneCount = slots.filter((s) => s.done_by).length;
+  const allDone = doneCount === slots.length;
+  const notStarted = today < ROULETTE_START;
+  const expired = today > ROULETTE_END;
+  const active = !notStarted && !expired && !allDone;
+  const isMgr = ["manager", "admin"].includes(me.role);
+
+  const openSlot = (s) => {
+    if (!s.done_by && !active) return;
+    setErr("");
+    if (!s.done_by) setName(me.full_name || me.email || "");
+    setClaim(s);
+  };
+  const doClaim = async () => {
+    if (!name.trim()) { setErr("이름을 입력하세요."); return; }
+    setBusy(true);
+    const { data, error } = await sb.from("roulette_slots")
+      .update({ done_by: name.trim(), done_at: new Date().toISOString() })
+      .eq("idx", claim.idx).is("done_by", null).select();
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    if (!data || data.length === 0) { setErr("이미 다른 분이 계약완료 처리했어요."); await onChanged(); return; }
+    setClaim(null);
+    await onChanged();
+  };
+  const undoClaim = async () => {
+    if (!confirm(claim.building + " " + claim.room + " 계약완료(" + claim.done_by + ")를 취소할까요?")) return;
+    setBusy(true);
+    const { error } = await sb.from("roulette_slots").update({ done_by: null, done_at: null }).eq("idx", claim.idx);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setClaim(null);
+    await onChanged();
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-amber-300 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="font-bold text-slate-800 text-lg break-keep">🎡 꽝 없는 룰렛 이벤트</h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {ROULETTE_START.split("-").join(".")} ~ {ROULETTE_END.split("-").join(".")} · 모든 매물 계약 시 조기 종료
+          </p>
+        </div>
+        {notStarted ? (
+          <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1 font-bold shrink-0">곧 시작!</span>
+        ) : allDone && !expired ? (
+          <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-full px-2.5 py-1 font-bold shrink-0">🎉 전 매물 계약! 조기 종료</span>
+        ) : expired ? (
+          <span className="text-xs bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-2.5 py-1 font-bold shrink-0">종료</span>
+        ) : (
+          <span className="text-xs bg-rose-100 text-rose-600 border border-rose-200 rounded-full px-2.5 py-1 font-bold shrink-0 animate-pulse">진행중</span>
+        )}
+      </div>
+      <p className="text-xs text-slate-500 mt-2">
+        🏆 <b className="text-amber-600">150만원 ×1</b> · 50만원 ×2 · 30만원 ×3 · 10만원 ×6 — 꽝 없음! · 계약완료 <b>{doneCount}</b> / {slots.length}
+      </p>
+
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-2 mt-3">
+        {slots.map((s) => s.done_by ? (
+          <button key={s.idx} onClick={() => openSlot(s)}
+            className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-1 py-2 text-center min-h-[68px] flex flex-col items-center justify-center">
+            <span className="text-base leading-none">🎉</span>
+            <span className="text-xs sm:text-sm font-bold text-emerald-700 break-keep leading-tight mt-0.5">{s.done_by}</span>
+            <span className="text-[9px] sm:text-[10px] text-emerald-500 line-through leading-tight mt-0.5">{s.building} {s.room}</span>
+          </button>
+        ) : (
+          <button key={s.idx} onClick={() => openSlot(s)} disabled={!active}
+            className={"rounded-xl border px-1 py-2 text-center min-h-[68px] flex flex-col items-center justify-center transition " +
+              (active ? "border-amber-200 bg-amber-50 hover:bg-amber-100 active:scale-95" : "border-slate-200 bg-slate-50 opacity-60")}>
+            <span className="text-xs sm:text-sm font-bold text-slate-700 break-keep leading-tight">{s.building}</span>
+            <span className="text-[11px] sm:text-xs text-slate-500 leading-tight mt-0.5">{s.room}</span>
+          </button>
+        ))}
+      </div>
+
+      <RoulettePractice />
+
+      {claim && (
+        <Modal title={claim.done_by ? "계약완료 정보" : "🎡 계약완료 처리"} onClose={() => setClaim(null)}>
+          <p className="text-center text-lg font-bold text-slate-800 mb-2">{claim.building} {claim.room}</p>
+          {claim.done_by ? (
+            <div className="text-center">
+              <p className="text-sm text-slate-600">🎉 <b>{claim.done_by}</b> 님이 계약했어요!</p>
+              {claim.done_at && <p className="text-xs text-slate-400 mt-1">{String(claim.done_at).slice(0, 10)}</p>}
+              {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
+              <div className="flex gap-2 pt-4 pb-2">
+                {isMgr && <button className={btnDanger + " flex-1"} onClick={undoClaim} disabled={busy}>계약완료 취소</button>}
+                <button className={btnGhost + " flex-1"} onClick={() => setClaim(null)}>닫기</button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Field label="계약한 사람 이름 *">
+                <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="이름" />
+              </Field>
+              <p className="text-xs text-slate-400 mb-2">계약완료 처리하면 이 칸이 위 이름으로 바뀌고, 모두에게 공유됩니다.</p>
+              {err && <p className="text-sm text-red-600 mb-2">{err}</p>}
+              <div className="flex gap-2 pb-2">
+                <button className={btnPrimary + " flex-1 py-3"} onClick={doClaim} disabled={busy}>{busy ? "처리 중..." : "🎉 계약완료"}</button>
+                <button className={btnGhost} onClick={() => setClaim(null)}>취소</button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- 자료실 (관리인 전용) ---------------- */
 const ARCHIVE_SPECS = {
   bi: {
@@ -2309,6 +2691,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [reactions, setReactions] = useState([]);
   const [comments, setComments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [roulette, setRoulette] = useState([]); // 꽝 없는 룰렛 이벤트 슬롯
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive
@@ -2330,7 +2713,7 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
-    const [b, l, f, e, r, cs, cc] = await Promise.all([
+    const [b, l, f, e, r, cs, cc, rs] = await Promise.all([
       sb.from("buildings").select("*"),
       sb.from("leases").select("*"),
       sb.from("custom_fields").select("*").order("sort_order"),
@@ -2338,6 +2721,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       sb.from("celebration_reactions").select("*"),
       sb.from("contract_submissions").select("*").order("created_at", { ascending: false }),
       sb.from("celebration_comments").select("*").order("created_at"),
+      sb.from("roulette_slots").select("*").order("idx"), // 테이블 미생성이면 error → 빈 배열
     ]);
     inactiveBuildingIds = new Set((b.data || []).filter((x) => x.active === false).map((x) => x.id));
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
@@ -2353,6 +2737,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     setReactions(r.data || []);
     setComments(cc.data || []);
     setSubmissions(cs.data || []);
+    setRoulette(rs.data || []);
     if (profile.role === "admin") {
       const { data: la } = await sb.from("lease_admin").select("lease_id, staff");
       const m = {};
@@ -2765,7 +3150,10 @@ function MainApp({ session, profile, onProfileChanged }) {
               <div className="flex-1" />
               {canEdit && <button className={btnPrimary} onClick={() => setModal({ type: "event", event: {} })}>+ 새 이벤트</button>}
             </div>
-            {events.length === 0 ? (
+            <div className="mb-3">
+              <RouletteEventCard slots={roulette} me={profile} onChanged={fetchAll} />
+            </div>
+            {events.length === 0 && roulette.length === 0 ? (
               <div className="bg-white rounded-2xl border p-10 text-center">
                 <div className="text-4xl mb-3">🎈</div>
                 <p className="text-slate-500 font-medium">진행 중인 이벤트가 없습니다.</p>
