@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.16.2";
+const APP_VERSION = "2026.07.16.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -582,6 +582,23 @@ function InsMark() {
 const isInsured = (l) => !!l && (l.insurance === true || l.insurance_pending === true);
 /* 복비 보너스/덤이 붙은 매물이면 true (태그 기준: 복비·보너스·덤 포함) */
 const hasBonus = (l) => !!l && Array.isArray(l.tags) && l.tags.some((t) => /복비|보너스|덤/.test(String(t)));
+/* 서울 주택 임대차 법정 중개보수 상한(만원). deposit·rent 만원 단위. 산정 불가 시 null.
+   거래금액=보증금+월세×100(단 5천만 미만이면 ×70). 요율/한도: <5천만 0.5%·20만 / <1억 0.4%·30만 / <6억 0.3% / <12억 0.4% / <15억 0.5% / 이상 0.6% */
+function legalMaxFee(deposit, rent) {
+  const dep = Number(deposit) || 0, rt = Number(rent) || 0;
+  if (dep <= 0 && rt <= 0) return null;
+  const base = dep + rt * 100;
+  const amt = base < 5000 ? dep + rt * 70 : base; // 거래금액(만원)
+  let rate, cap;
+  if (amt < 5000) { rate = 0.005; cap = 20; }
+  else if (amt < 10000) { rate = 0.004; cap = 30; }
+  else if (amt < 60000) { rate = 0.003; cap = Infinity; }
+  else if (amt < 120000) { rate = 0.004; cap = Infinity; }
+  else if (amt < 150000) { rate = 0.005; cap = Infinity; }
+  else { rate = 0.006; cap = Infinity; }
+  return Math.min(amt * rate, cap); // 만원
+}
+const BONUS_TAGS = ["임대인 복비보너스", "임차인 복비보너스", "복비보너스"];
 
 /* 매물 세부 옵션 / 건물 옵션 어휘 (v=저장·배지 표시값, d=선택 화면 설명) */
 const LEASE_TAGS = [
@@ -2075,8 +2092,8 @@ function OrganizeView({ buildings, leases, onBack, onSaved }) {
 }
 
 function BuildingEditTable({ building, rows, onSaved }) {
-  const COLS = [["room_number", "호수", "text"], ["tenant_name", "세입자", "text"], ["tenant_phone", "연락처", "text"], ["start_date", "입주", "date"], ["end_date", "만기", "date"], ["deposit", "보증금", "num"], ["monthly_rent", "월세", "num"], ["management_fee", "관리비", "num"], ["hope_deposit", "희망보증", "num"], ["hope_rent", "희망월세", "num"], ["hope_fee", "희망관리", "num"], ["vacant", "공실", "bool"], ["insurance", "보증보험", "ins"], ["memo", "메모", "text"]];
-  const colW = { room_number: "80px", tenant_name: "100px", tenant_phone: "130px", start_date: "140px", end_date: "140px", deposit: "80px", monthly_rent: "70px", management_fee: "70px", hope_deposit: "70px", hope_rent: "70px", hope_fee: "70px", vacant: "44px", insurance: "84px", memo: "180px" };
+  const COLS = [["room_number", "호수", "text"], ["tenant_name", "세입자", "text"], ["tenant_phone", "연락처", "text"], ["start_date", "입주", "date"], ["end_date", "만기", "date"], ["deposit", "보증금", "num"], ["monthly_rent", "월세", "num"], ["management_fee", "관리비", "num"], ["hope_deposit", "희망보증", "num"], ["hope_rent", "희망월세", "num"], ["hope_fee", "희망관리", "num"], ["bonus_landlord", "임대인보너스", "num"], ["bonus_tenant", "임차인보너스", "num"], ["bonus_other", "기타보너스", "text"], ["vacant", "공실", "bool"], ["insurance", "보증보험", "ins"], ["memo", "메모", "text"]];
+  const colW = { room_number: "80px", tenant_name: "100px", tenant_phone: "130px", start_date: "140px", end_date: "140px", deposit: "80px", monthly_rent: "70px", management_fee: "70px", hope_deposit: "70px", hope_rent: "70px", hope_fee: "70px", bonus_landlord: "82px", bonus_tenant: "82px", bonus_other: "150px", vacant: "44px", insurance: "84px", memo: "180px" };
   const sorted = [...rows].sort(leaseSort);
   const [edits, setEdits] = useState({});
   const [news, setNews] = useState([]);
@@ -2107,10 +2124,29 @@ function BuildingEditTable({ building, rows, onSaved }) {
     return p;
   };
 
+  // 보너스 3열 처리: 법정 상한 초과 검증(임대인·임차인) + side별 태그 동기화. 에러문구 반환(없으면 null)
+  const applyBonus = (p, existingTags) => {
+    const legal = legalMaxFee(p.hope_deposit != null ? p.hope_deposit : p.deposit,
+                              p.hope_rent != null ? p.hope_rent : p.monthly_rent);
+    for (const [f, who] of [["bonus_landlord", "임대인"], ["bonus_tenant", "임차인"]]) {
+      const v = p[f];
+      if (v != null && v > 0 && legal != null && v <= legal)
+        return `${who} 보너스는 법정 상한 ${+legal.toFixed(1)}만원을 초과해야 보너스로 인정됩니다 (입력 ${v}만원).`;
+    }
+    const tags = (Array.isArray(existingTags) ? existingTags : []).filter((t) => !BONUS_TAGS.includes(t));
+    if (p.bonus_landlord != null && p.bonus_landlord > 0) tags.push("임대인 복비보너스");
+    if (p.bonus_tenant != null && p.bonus_tenant > 0) tags.push("임차인 복비보너스");
+    if (p.bonus_other && String(p.bonus_other).trim()) tags.push("복비보너스");
+    p.tags = tags;
+    return null;
+  };
+
   const saveRow = async (l) => {
     setMsg(""); setBusy(l.id);
     const p = mkPayload((f) => curVal(l, f));
     if (!p.room_number) { setMsg("호수는 필수입니다."); setBusy(null); return; }
+    const be = applyBonus(p, l.tags);
+    if (be) { setMsg(be); setBusy(null); return; }
     const { error } = await sb.from("leases").update(p).eq("id", l.id);
     setBusy(null);
     if (error) setMsg("저장 실패: " + error.message);
@@ -2121,6 +2157,8 @@ function BuildingEditTable({ building, rows, onSaved }) {
     const p = mkPayload((f) => nr.f[f]);
     p.building_id = building.id;
     if (!p.room_number) { setMsg("호수는 필수입니다."); setBusy(null); return; }
+    const be = applyBonus(p, []);
+    if (be) { setMsg(be); setBusy(null); return; }
     const { error } = await sb.from("leases").insert(p);
     setBusy(null);
     if (error) setMsg("추가 실패: " + error.message);
