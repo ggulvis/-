@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.3";
+const APP_VERSION = "2026.07.17.4";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1679,7 +1679,7 @@ function RoulettePractice() {
   );
 }
 
-function RouletteEventCard({ slots, leases, me, onChanged }) {
+function RouletteEventCard({ slots, leases, me, onChanged, onOpenLease }) {
   const [claim, setClaim] = useState(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1800,6 +1800,34 @@ function RouletteEventCard({ slots, leases, me, onChanged }) {
       {claim && (
         <Modal title={claim._eff ? "계약완료 정보" : "🎡 계약완료 처리"} onClose={() => setClaim(null)}>
           <p className="text-center text-lg font-bold text-slate-800 mb-2">{claim.building} {claim.room}</p>
+          {(() => {
+            const l = leaseOf(claim);
+            if (!l) return null;
+            const bonus = [
+              Number(l.bonus_landlord) > 0 ? "임대인 " + fmtMoney(l.bonus_landlord) + "만" : null,
+              Number(l.bonus_tenant) > 0 ? "임차인 " + fmtMoney(l.bonus_tenant) + "만" : null,
+              l.bonus_other || null,
+            ].filter(Boolean).join(" · ");
+            return (
+              <div className="bg-slate-50 border rounded-xl p-3 mb-3 space-y-1">
+                <div className="text-sm text-slate-700">
+                  💰 보 <b>{fmtMoney(l.deposit)}</b> / 월 <b>{fmtMoney(l.monthly_rent)}</b>
+                  {l.management_fee != null && l.management_fee !== "" ? <span> / 관 {fmtMoney(l.management_fee)}</span> : null}
+                  <span className="text-slate-400 text-xs"> (만원{l._hope ? " · 희망가" : ""})</span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  {l.vacant ? "🟢 공실" : l.move_out ? "🟠 중도퇴실 예정 · 만기 " + (l.end_date || "-") : "만기 " + (l.end_date || "-")}
+                  {l.vacant && l.door_code ? " · 🔑 " + l.door_code : ""}
+                </div>
+                {bonus && <div className="text-xs text-amber-700 font-semibold break-keep">🎁 중개보수 보너스: {bonus}</div>}
+                {l.memo && <div className="text-xs text-slate-500 whitespace-pre-wrap break-keep border-t border-slate-200 pt-1.5">{l.memo}</div>}
+                {onOpenLease && (
+                  <button className="w-full !mt-2 border border-slate-300 bg-white rounded-lg py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 active:bg-slate-100"
+                    onClick={() => { setClaim(null); onOpenLease(l); }}>📋 매물 상세정보 보기</button>
+                )}
+              </div>
+            );
+          })()}
           {claim._eff ? (
             <div className="text-center">
               <p className="text-sm text-slate-600">🎉 <b>{claim._eff.by}</b> 님이 계약했어요!</p>
@@ -3368,7 +3396,7 @@ function MainApp({ session, profile, onProfileChanged }) {
               {canEdit && <button className={btnPrimary} onClick={() => setModal({ type: "event", event: {} })}>+ 새 이벤트</button>}
             </div>
             <div className="mb-3">
-              <RouletteEventCard slots={roulette} leases={leases} me={profile} onChanged={fetchAll} />
+              <RouletteEventCard slots={roulette} leases={leases} me={profile} onChanged={fetchAll} onOpenLease={(l) => setModal({ type: "detail", lease: l })} />
             </div>
             {events.length === 0 && roulette.length === 0 ? (
               <div className="bg-white rounded-2xl border p-10 text-center">
