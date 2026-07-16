@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.5";
+const APP_VERSION = "2026.07.17.6";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1680,7 +1680,7 @@ function RoulettePractice() {
   );
 }
 
-function RouletteEventCard({ slots, leases, me, onChanged, onOpenLease }) {
+function RouletteEventCard({ slots, leases, me, onChanged, onOpenLease, eventId }) {
   const [claim, setClaim] = useState(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1795,6 +1795,18 @@ function RouletteEventCard({ slots, leases, me, onChanged, onOpenLease }) {
           </button>
         );})}
       </div>
+
+      {isMgr && eventId && !active && !notStarted && (
+        <button className="w-full mt-3 border border-slate-300 bg-slate-50 hover:bg-slate-100 rounded-xl py-2.5 text-sm font-semibold text-slate-600"
+          onClick={async () => {
+            if (!confirm("이벤트 종료 처리할까요?\n12개 매물에 붙은 '이벤트' 배지가 일괄 해제됩니다.\n(이 룰렛 카드와 계약완료 기록은 그대로 남습니다)")) return;
+            const { error } = await sb.from("events").delete().eq("id", eventId);
+            if (error) alert("처리 실패: " + error.message);
+            else await onChanged();
+          }}>
+          🏁 이벤트 종료 처리 — 매물 "이벤트" 배지 일괄 해제
+        </button>
+      )}
 
       <RoulettePractice />
 
@@ -3129,6 +3141,17 @@ function MainApp({ session, profile, onProfileChanged }) {
     leases.forEach((l) => { if (hasEvent(l)) s[l.building_id] = true; });
     return s;
   }, [leases]);
+  // 룰렛 매물에 연결된 events 행 — 이벤트 탭에서 일반 카드로 중복 노출되지 않게 분리 (룰렛 전용 카드가 대표)
+  const rouletteEventIds = useMemo(() => {
+    const s = new Set();
+    roulette.forEach((r) => {
+      if (!r.lease_id) return;
+      const l = leases.find((x) => x.id === r.lease_id);
+      if (l && l.event_id) s.add(l.event_id);
+    });
+    return s;
+  }, [roulette, leases]);
+  const otherEvents = useMemo(() => events.filter((e) => !rouletteEventIds.has(e.id)), [events, rouletteEventIds]);
   const filteredBuildings = useMemo(() => {
     let list = buildings;
     if (region !== "all") {
@@ -3404,14 +3427,15 @@ function MainApp({ session, profile, onProfileChanged }) {
             <div className="flex items-center gap-2 mb-4">
               <button className="text-slate-400 hover:text-slate-700 text-xl px-1" onClick={() => setView({ name: "home" })}>←</button>
               <h2 className="font-bold text-xl text-slate-800">🎁 이벤트</h2>
-              <span className="text-sm text-slate-400">{events.length}개</span>
+              <span className="text-sm text-slate-400">{otherEvents.length + (roulette.length > 0 ? 1 : 0)}개</span>
               <div className="flex-1" />
               {canEdit && <button className={btnPrimary} onClick={() => setModal({ type: "event", event: {} })}>+ 새 이벤트</button>}
             </div>
             <div className="mb-3">
-              <RouletteEventCard slots={roulette} leases={leases} me={profile} onChanged={fetchAll} onOpenLease={(l) => setModal({ type: "detail", lease: l })} />
+              <RouletteEventCard slots={roulette} leases={leases} me={profile} onChanged={fetchAll} onOpenLease={(l) => setModal({ type: "detail", lease: l })}
+                eventId={rouletteEventIds.size > 0 ? [...rouletteEventIds][0] : null} />
             </div>
-            {events.length === 0 && roulette.length === 0 ? (
+            {otherEvents.length === 0 && roulette.length === 0 ? (
               <div className="bg-white rounded-2xl border p-10 text-center">
                 <div className="text-4xl mb-3">🎈</div>
                 <p className="text-slate-500 font-medium">진행 중인 이벤트가 없습니다.</p>
@@ -3419,7 +3443,7 @@ function MainApp({ session, profile, onProfileChanged }) {
               </div>
             ) : (
               <div className="space-y-3">
-                {events.map((ev) => {
+                {otherEvents.map((ev) => {
                   const evLeases = leases.filter((l) => l.event_id === ev.id);
                   return (
                     <div key={ev.id} className="bg-white rounded-2xl border p-4">
