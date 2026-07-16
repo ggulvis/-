@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.16.4";
+const APP_VERSION = "2026.07.16.5";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2102,7 +2102,11 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
   const [msg, setMsg] = useState("");
   const [importResult, setImportResult] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [uRole, setURole] = useState("all"); // 사용자 관리: 등급 필터
+  const [uAff, setUAff] = useState("all");   // 사용자 관리: 소속 필터
   const fileRef = useRef(null);
+  const affOf = (u) => (u.affiliation || "").trim() || "(소속 없음)";
+  const ROLE_RANK = { admin: 0, manager: 1, editor: 2, viewer: 3 };
 
   const loadUsers = async () => {
     const { data } = await sb.from("user_roles").select("*").order("created_at");
@@ -2300,12 +2304,67 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
         </div>
       )}
 
-      {tab === "users" && (
+      {tab === "users" && (() => {
+        const base = isAdminU ? users : pendingUsers;
+        const pendCnt = users.filter((u) => u.status === "pending").length;
+        const roleCnt = (r) => users.filter((u) => u.status !== "pending" && u.role === r).length;
+        const affList = [...new Set(users.map(affOf))].sort((a, b) => a.localeCompare(b, "ko"));
+        const affCnt = (a) => users.filter((u) => affOf(u) === a).length;
+        const shown = base
+          .filter((u) => uRole === "all" ? true : uRole === "pending" ? u.status === "pending" : u.status !== "pending" && u.role === uRole)
+          .filter((u) => uAff === "all" || affOf(u) === uAff)
+          .sort((a, b) =>
+            (a.status === "pending" ? -1 : ROLE_RANK[a.role] ?? 9) - (b.status === "pending" ? -1 : ROLE_RANK[b.role] ?? 9) ||
+            String(a.full_name || a.email || "").localeCompare(String(b.full_name || b.email || ""), "ko"));
+        const groups = [];
+        shown.forEach((u) => {
+          const k = affOf(u);
+          const g = groups.find((x) => x.aff === k);
+          if (g) g.list.push(u); else groups.push({ aff: k, list: [u] });
+        });
+        const chip = (active, label, cnt, onClick) => (
+          <button key={label} onClick={onClick}
+            className={"rounded-full border px-2.5 py-1 text-xs font-semibold whitespace-nowrap " +
+              (active ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50")}>
+            {label}{cnt != null && <span className={active ? " text-blue-200" : " text-slate-400"}> {cnt}</span>}
+          </button>
+        );
+        return (
         <div className="space-y-2 pb-2">
-          {(isAdminU ? users : pendingUsers).length === 0 && (
+          {isAdminU && users.length > 0 && (
+            <div className="mb-3 space-y-2">
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <span className="text-[11px] font-bold text-slate-400 w-7 shrink-0">등급</span>
+                {chip(uRole === "all", "전체", users.length, () => setURole("all"))}
+                {pendCnt > 0 && chip(uRole === "pending", "대기", pendCnt, () => setURole("pending"))}
+                {chip(uRole === "admin", "관리자", roleCnt("admin"), () => setURole("admin"))}
+                {chip(uRole === "manager", "관리인", roleCnt("manager"), () => setURole("manager"))}
+                {chip(uRole === "editor", "편집자", roleCnt("editor"), () => setURole("editor"))}
+                {chip(uRole === "viewer", "열람자", roleCnt("viewer"), () => setURole("viewer"))}
+              </div>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <span className="text-[11px] font-bold text-slate-400 w-7 shrink-0">소속</span>
+                {chip(uAff === "all", "전체", null, () => setUAff("all"))}
+                {affList.map((a) => chip(uAff === a, a, affCnt(a), () => setUAff(a)))}
+              </div>
+            </div>
+          )}
+          {base.length === 0 && (
             <p className="text-sm text-slate-400 text-center py-6">{isAdminU ? "사용자가 없습니다." : "승인 대기 중인 가입 신청이 없습니다."}</p>
           )}
-          {(isAdminU ? users : pendingUsers).map((u) => (
+          {base.length > 0 && shown.length === 0 && (
+            <p className="text-sm text-slate-400 text-center py-6">조건에 맞는 사용자가 없습니다.</p>
+          )}
+          {groups.map((g) => (
+          <div key={g.aff}>
+          {isAdminU && (
+            <p className="text-xs font-bold text-slate-500 mt-3 mb-1.5 flex items-center gap-1.5">
+              <span className="bg-slate-100 rounded px-1.5 py-0.5">🏢 {g.aff}</span>
+              <span className="text-slate-400 font-medium">{g.list.length}명</span>
+            </p>
+          )}
+          <div className="space-y-2">
+          {g.list.map((u) => (
             <div key={u.id} className={"border rounded-xl p-3 " + (u.status === "pending" ? "border-amber-300 bg-amber-50" : "bg-white")}>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="font-semibold text-slate-800">{u.full_name || "(이름 없음)"}</span>
@@ -2337,8 +2396,12 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
               </div>
             </div>
           ))}
+          </div>
+          </div>
+          ))}
         </div>
-      )}
+        );
+      })()}
 
       {tab === "fields" && (
         <div className="pb-2">
