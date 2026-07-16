@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.1";
+const APP_VERSION = "2026.07.17.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3032,7 +3032,25 @@ function MainApp({ session, profile, onProfileChanged }) {
       clearInterval(t);
     };
   }, []);
-  const applyUpdate = () => { window.location.href = location.pathname + "?v=" + Date.now(); };
+  // 업데이트 적용: PWA(아이패드 홈 화면 앱)에서 단순 리로드가 캐시/전파 지연으로 옛 버전을 다시 받는 문제 대응
+  // ① 새 버전 HTML이 실제로 받아질 때까지 확인(최대 ~12초) ② HTTP 캐시 강제 갱신 ③ 캐시 우회 주소로 교체 이동
+  const [updating, setUpdating] = useState(false);
+  const applyUpdate = async () => {
+    if (updating) return;
+    setUpdating(true);
+    try {
+      for (let i = 0; i < 8; i++) {
+        const html = await fetch("/index.html?_=" + Date.now(), { cache: "no-store" }).then((r) => r.text());
+        const m = html.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+        if (m && m[1] !== APP_VERSION) break; // 새 버전 확인됨
+        if (i === 7) { setUpdating(false); setUpdateReady(false); return; } // 아직 같은 버전만 옴 → 배너 접고 다음 감지 때 재시도
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      try { await fetch(location.pathname, { cache: "reload" }); } catch (e) {}
+      try { await fetch("/index.html", { cache: "reload" }); } catch (e) {}
+    } catch (e) { /* 네트워크 오류여도 아래에서 리로드 시도 */ }
+    window.location.replace(location.pathname + "?v=" + Date.now());
+  };
 
   const leasesByBuilding = useMemo(() => {
     const m = {};
@@ -3150,8 +3168,8 @@ function MainApp({ session, profile, onProfileChanged }) {
       {/* 새 버전 업데이트 배너 */}
       {updateReady && (
         <div className="bg-blue-600 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 flex-wrap">
-          <span className="font-medium">✨ 새 버전이 나왔어요. 업데이트하면 최신 기능이 적용됩니다.</span>
-          <button className="bg-white text-blue-700 font-bold rounded-lg px-3 py-1 active:bg-blue-50" onClick={applyUpdate}>지금 업데이트</button>
+          <span className="font-medium">{updating ? "⏳ 새 버전을 받아 적용하는 중이에요..." : "✨ 새 버전이 나왔어요. 업데이트하면 최신 기능이 적용됩니다."}</span>
+          <button className="bg-white text-blue-700 font-bold rounded-lg px-3 py-1 active:bg-blue-50 disabled:opacity-60" onClick={applyUpdate} disabled={updating}>{updating ? "적용 중..." : "지금 업데이트"}</button>
         </div>
       )}
       {/* 헤더 */}
