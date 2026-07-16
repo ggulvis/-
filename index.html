@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.16.6";
+const APP_VERSION = "2026.07.17.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1679,15 +1679,24 @@ function RoulettePractice() {
   );
 }
 
-function RouletteEventCard({ slots, me, onChanged }) {
+function RouletteEventCard({ slots, leases, me, onChanged }) {
   const [claim, setClaim] = useState(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   if (!slots || slots.length === 0) return null; // 테이블 미생성 시 숨김
 
+  // 칸의 실제 계약완료 상태: 이벤트에서 처리(slot) 또는 원본 매물에서 처리(lease) 모두 반영
+  const effOf = (s) => {
+    if (s.done_by) return { by: s.done_by, at: s.done_at, viaSlot: true };
+    const l = s.lease_id ? (leases || []).find((x) => x.id === s.lease_id) : null;
+    if (l && l.contract_done) return { by: l.contract_done_by || "계약완료", at: l.contract_done_at, viaSlot: false };
+    return null;
+  };
+  const leaseOf = (s) => (s.lease_id ? (leases || []).find((x) => x.id === s.lease_id) : null);
+
   const today = rouletteToday();
-  const doneCount = slots.filter((s) => s.done_by).length;
+  const doneCount = slots.filter((s) => effOf(s)).length;
   const allDone = doneCount === slots.length;
   const notStarted = today < ROULETTE_START;
   const expired = today > ROULETTE_END;
@@ -1695,10 +1704,11 @@ function RouletteEventCard({ slots, me, onChanged }) {
   const isMgr = ["manager", "admin"].includes(me.role);
 
   const openSlot = (s) => {
-    if (!s.done_by && !active) return;
+    const eff = effOf(s);
+    if (!eff && !active) return;
     setErr("");
-    if (!s.done_by) setName(me.full_name || me.email || "");
-    setClaim(s);
+    if (!eff) setName(me.full_name || me.email || "");
+    setClaim({ ...s, _eff: eff });
   };
   const doClaim = async () => {
     if (!name.trim()) { setErr("이름을 입력하세요."); return; }
@@ -1706,18 +1716,33 @@ function RouletteEventCard({ slots, me, onChanged }) {
     const { data, error } = await sb.from("roulette_slots")
       .update({ done_by: name.trim(), done_at: new Date().toISOString() })
       .eq("idx", claim.idx).is("done_by", null).select();
+    if (error) { setBusy(false); setErr(error.message); return; }
+    if (!data || data.length === 0) { setBusy(false); setErr("이미 다른 분이 계약완료 처리했어요."); await onChanged(); return; }
+    // 원본 매물도 계약완료 처리 → 축하 코너·실적 자동 반영 (실패해도 칸 처리는 유지)
+    let warn = "";
+    const l = leaseOf(claim);
+    if (claim.lease_id && !(l && l.contract_done)) {
+      const { error: e2 } = await sb.rpc("set_contract_done", { p_lease: claim.lease_id, p_done: true });
+      if (e2) warn = "칸은 처리됐지만 원본 매물 계약완료 연동에 실패했습니다: " + e2.message + "\n매물 상세에서 직접 계약완료 처리해주세요.";
+    }
     setBusy(false);
-    if (error) { setErr(error.message); return; }
-    if (!data || data.length === 0) { setErr("이미 다른 분이 계약완료 처리했어요."); await onChanged(); return; }
     setClaim(null);
     await onChanged();
+    if (warn) alert(warn);
   };
   const undoClaim = async () => {
-    if (!confirm(claim.building + " " + claim.room + " 계약완료(" + claim.done_by + ")를 취소할까요?")) return;
+    if (!confirm(claim.building + " " + claim.room + " 계약완료(" + (claim._eff && claim._eff.by) + ")를 취소할까요?\n원본 매물의 계약완료(축하 코너·실적 포함)도 함께 취소됩니다.")) return;
     setBusy(true);
-    const { error } = await sb.from("roulette_slots").update({ done_by: null, done_at: null }).eq("idx", claim.idx);
+    if (claim.done_by) {
+      const { error } = await sb.from("roulette_slots").update({ done_by: null, done_at: null }).eq("idx", claim.idx);
+      if (error) { setBusy(false); setErr(error.message); return; }
+    }
+    const l = leaseOf(claim);
+    if (l && l.contract_done) {
+      const { error: e2 } = await sb.rpc("set_contract_done", { p_lease: claim.lease_id, p_done: false });
+      if (e2) { setBusy(false); setErr("칸은 원복됐지만 원본 매물 계약완료 취소에 실패: " + e2.message); await onChanged(); return; }
+    }
     setBusy(false);
-    if (error) { setErr(error.message); return; }
     setClaim(null);
     await onChanged();
   };
@@ -1746,11 +1771,13 @@ function RouletteEventCard({ slots, me, onChanged }) {
       </p>
 
       <div className="grid grid-cols-4 gap-1.5 sm:gap-2 mt-3">
-        {slots.map((s) => s.done_by ? (
+        {slots.map((s) => {
+          const eff = effOf(s);
+          return eff ? (
           <button key={s.idx} onClick={() => openSlot(s)}
             className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-1 py-2 text-center min-h-[68px] flex flex-col items-center justify-center">
             <span className="text-base leading-none">🎉</span>
-            <span className="text-xs sm:text-sm font-bold text-emerald-700 break-keep leading-tight mt-0.5">{s.done_by}</span>
+            <span className="text-xs sm:text-sm font-bold text-emerald-700 break-keep leading-tight mt-0.5">{eff.by}</span>
             <span className="text-[9px] sm:text-[10px] text-emerald-500 line-through leading-tight mt-0.5">{s.building} {s.room}</span>
           </button>
         ) : (
@@ -1760,30 +1787,34 @@ function RouletteEventCard({ slots, me, onChanged }) {
             <span className="text-xs sm:text-sm font-bold text-slate-700 break-keep leading-tight">{s.building}</span>
             <span className="text-[11px] sm:text-xs text-slate-500 leading-tight mt-0.5">{s.room}</span>
           </button>
-        ))}
+        );})}
       </div>
 
       <RoulettePractice />
 
       {claim && (
-        <Modal title={claim.done_by ? "계약완료 정보" : "🎡 계약완료 처리"} onClose={() => setClaim(null)}>
+        <Modal title={claim._eff ? "계약완료 정보" : "🎡 계약완료 처리"} onClose={() => setClaim(null)}>
           <p className="text-center text-lg font-bold text-slate-800 mb-2">{claim.building} {claim.room}</p>
-          {claim.done_by ? (
+          {claim._eff ? (
             <div className="text-center">
-              <p className="text-sm text-slate-600">🎉 <b>{claim.done_by}</b> 님이 계약했어요!</p>
-              {claim.done_at && <p className="text-xs text-slate-400 mt-1">{String(claim.done_at).slice(0, 10)}</p>}
+              <p className="text-sm text-slate-600">🎉 <b>{claim._eff.by}</b> 님이 계약했어요!</p>
+              {claim._eff.at && <p className="text-xs text-slate-400 mt-1">{String(claim._eff.at).slice(0, 10)}</p>}
               {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
               <div className="flex gap-2 pt-4 pb-2">
-                {isMgr && <button className={btnDanger + " flex-1"} onClick={undoClaim} disabled={busy}>계약완료 취소</button>}
+                {isMgr && <button className={btnDanger + " flex-1"} onClick={undoClaim} disabled={busy}>{busy ? "처리 중..." : "계약완료 취소 (원본 포함)"}</button>}
                 <button className={btnGhost + " flex-1"} onClick={() => setClaim(null)}>닫기</button>
               </div>
+              {isMgr && <p className="text-[11px] text-slate-400 pb-1 break-keep">취소하면 이 칸이 다시 열리고, 원본 매물의 계약완료·축하 코너·실적도 함께 원복됩니다.</p>}
             </div>
           ) : (
             <div>
               <Field label="계약한 사람 이름 *">
                 <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="이름" />
               </Field>
-              <p className="text-xs text-slate-400 mb-2">계약완료 처리하면 이 칸이 위 이름으로 바뀌고, 모두에게 공유됩니다.</p>
+              <p className="text-xs text-slate-400 mb-2 break-keep">
+                계약완료 처리하면 이 칸이 위 이름으로 바뀌고, <b className="text-slate-500">원본 매물도 계약완료 처리되어 축하 코너에 올라갑니다.</b>
+                {claim.lease_id ? " (실적 기록은 " + (me.full_name || "처리자") + " 이름으로 남습니다)" : ""}
+              </p>
               {err && <p className="text-sm text-red-600 mb-2">{err}</p>}
               <div className="flex gap-2 pb-2">
                 <button className={btnPrimary + " flex-1 py-3"} onClick={doClaim} disabled={busy}>{busy ? "처리 중..." : "🎉 계약완료"}</button>
@@ -3313,7 +3344,7 @@ function MainApp({ session, profile, onProfileChanged }) {
               {canEdit && <button className={btnPrimary} onClick={() => setModal({ type: "event", event: {} })}>+ 새 이벤트</button>}
             </div>
             <div className="mb-3">
-              <RouletteEventCard slots={roulette} me={profile} onChanged={fetchAll} />
+              <RouletteEventCard slots={roulette} leases={leases} me={profile} onChanged={fetchAll} />
             </div>
             {events.length === 0 && roulette.length === 0 ? (
               <div className="bg-white rounded-2xl border p-10 text-center">
