@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.2";
+const APP_VERSION = "2026.07.17.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1714,7 +1714,7 @@ function RouletteEventCard({ slots, leases, me, onChanged }) {
     if (!name.trim()) { setErr("이름을 입력하세요."); return; }
     setBusy(true);
     const { data, error } = await sb.from("roulette_slots")
-      .update({ done_by: name.trim(), done_at: new Date().toISOString() })
+      .update({ done_by: name.trim(), done_at: new Date().toISOString(), done_by_user: me.user_id })
       .eq("idx", claim.idx).is("done_by", null).select();
     if (error) { setBusy(false); setErr(error.message); return; }
     if (!data || data.length === 0) { setBusy(false); setErr("이미 다른 분이 계약완료 처리했어요."); await onChanged(); return; }
@@ -1734,7 +1734,7 @@ function RouletteEventCard({ slots, leases, me, onChanged }) {
     if (!confirm(claim.building + " " + claim.room + " 계약완료(" + (claim._eff && claim._eff.by) + ")를 취소할까요?\n원본 매물의 계약완료(축하 코너·실적 포함)도 함께 취소됩니다.")) return;
     setBusy(true);
     if (claim.done_by) {
-      const { error } = await sb.from("roulette_slots").update({ done_by: null, done_at: null }).eq("idx", claim.idx);
+      const { error } = await sb.from("roulette_slots").update({ done_by: null, done_at: null, done_by_user: null }).eq("idx", claim.idx);
       if (error) { setBusy(false); setErr(error.message); return; }
     }
     const l = leaseOf(claim);
@@ -1746,6 +1746,11 @@ function RouletteEventCard({ slots, leases, me, onChanged }) {
     setClaim(null);
     await onChanged();
   };
+
+  // 취소 가능: 관리인/관리자, 이벤트에서 본인이 처리한 칸(done_by_user), 원본에서 본인이 완료한 매물(이름 일치)
+  const canUndo = !!(claim && claim._eff && (isMgr ||
+    (claim._eff.viaSlot && claim.done_by_user && claim.done_by_user === me.user_id) ||
+    (!claim._eff.viaSlot && claim._eff.by === (me.full_name || me.email))));
 
   return (
     <div className="bg-white rounded-2xl border-2 border-amber-300 p-4">
@@ -1801,10 +1806,11 @@ function RouletteEventCard({ slots, leases, me, onChanged }) {
               {claim._eff.at && <p className="text-xs text-slate-400 mt-1">{String(claim._eff.at).slice(0, 10)}</p>}
               {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
               <div className="flex gap-2 pt-4 pb-2">
-                {isMgr && <button className={btnDanger + " flex-1"} onClick={undoClaim} disabled={busy}>{busy ? "처리 중..." : "계약완료 취소 (원본 포함)"}</button>}
+                {canUndo && <button className={btnDanger + " flex-1"} onClick={undoClaim} disabled={busy}>{busy ? "처리 중..." : "계약완료 취소 (원본 포함)"}</button>}
                 <button className={btnGhost + " flex-1"} onClick={() => setClaim(null)}>닫기</button>
               </div>
-              {isMgr && <p className="text-[11px] text-slate-400 pb-1 break-keep">취소하면 이 칸이 다시 열리고, 원본 매물의 계약완료·축하 코너·실적도 함께 원복됩니다.</p>}
+              {canUndo && <p className="text-[11px] text-slate-400 pb-1 break-keep">계약이 파기되었나요? 취소하면 이 칸이 다시 열리고, 원본 매물의 계약완료·축하 코너·실적도 함께 원복됩니다.</p>}
+              {!canUndo && <p className="text-[11px] text-slate-400 pb-1 break-keep">취소(파기 원복)는 본인 또는 관리인만 할 수 있어요.</p>}
             </div>
           ) : (
             <div>
