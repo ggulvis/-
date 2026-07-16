@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.16.1";
+const APP_VERSION = "2026.07.16.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -580,6 +580,8 @@ function InsMark() {
 }
 /* 가입완료(insurance) 또는 가입중(insurance_pending)이면 true */
 const isInsured = (l) => !!l && (l.insurance === true || l.insurance_pending === true);
+/* 복비 보너스/덤이 붙은 매물이면 true (태그 기준: 복비·보너스·덤 포함) */
+const hasBonus = (l) => !!l && Array.isArray(l.tags) && l.tags.some((t) => /복비|보너스|덤/.test(String(t)));
 
 /* 매물 세부 옵션 / 건물 옵션 어휘 (v=저장·배지 표시값, d=선택 화면 설명) */
 const LEASE_TAGS = [
@@ -2275,6 +2277,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [region, setRegion] = useState("all");   // 지역 탭
   const [subArea, setSubArea] = useState("전체"); // 세부 동 탭
   const [insFilter, setInsFilter] = useState(false); // 보증보험 필터 (가입완료+가입중 매물 있는 건물만)
+  const [bonusFilter, setBonusFilter] = useState(false); // 복비 보너스 필터 (보너스 태그 매물만)
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
   const [menuOpen, setMenuOpen] = useState(false);
@@ -2417,11 +2420,13 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const leasesByBuilding = useMemo(() => {
     const m = {};
-    // 보증보험 필터가 켜지면 가입(완료/중)된 호실만 목록·카드·건물상세에 노출
-    const src = insFilter ? leases.filter(isInsured) : leases;
+    // 보증보험/보너스 필터가 켜지면 해당 호실만 목록·카드·건물상세에 노출 (동시 적용 가능)
+    let src = leases;
+    if (insFilter) src = src.filter(isInsured);
+    if (bonusFilter) src = src.filter(hasBonus);
     src.forEach((l) => { (m[l.building_id] = m[l.building_id] || []).push(l); });
     return m;
-  }, [leases, insFilter]);
+  }, [leases, insFilter, bonusFilter]);
 
   const q = search.trim().toLowerCase();
   // 건물별 가장 급한 만기일 (계약완료 제외)
@@ -2443,6 +2448,11 @@ function MainApp({ session, profile, onProfileChanged }) {
     leases.forEach((l) => { if (isInsured(l)) s[l.building_id] = true; });
     return s;
   }, [leases]);
+  const buildingBonus = useMemo(() => {
+    const s = {};
+    leases.forEach((l) => { if (hasBonus(l)) s[l.building_id] = true; });
+    return s;
+  }, [leases]);
   const filteredBuildings = useMemo(() => {
     let list = buildings;
     if (region !== "all") {
@@ -2452,6 +2462,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       }
     }
     if (insFilter) list = list.filter((b) => buildingInsured[b.id]);
+    if (bonusFilter) list = list.filter((b) => buildingBonus[b.id]);
     if (q) {
       list = list.filter((b) => {
         if (b.name.toLowerCase().includes(q)) return true;
@@ -2472,7 +2483,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       if (!!ua !== !!ub) return ua ? -1 : 1;
       return a.name.localeCompare(b.name, "ko");
     });
-  }, [q, region, subArea, insFilter, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured]);
+  }, [q, region, subArea, insFilter, bonusFilter, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured, buildingBonus]);
 
   const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
   const dupCount = useMemo(() => {
@@ -2621,10 +2632,14 @@ function MainApp({ session, profile, onProfileChanged }) {
                   ))}
                 </div>
               )}
-              <div className="mt-2">
+              <div className="mt-2 flex gap-2 flex-wrap">
                 <button onClick={() => setInsFilter((v) => !v)}
                   className={"px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border inline-flex items-center gap-1 " + (insFilter ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50")}>
                   ✓ 보증보험만{insFilter && <span className="text-[10px] bg-white/25 rounded px-1">ON</span>}
+                </button>
+                <button onClick={() => setBonusFilter((v) => !v)}
+                  className={"px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border inline-flex items-center gap-1 " + (bonusFilter ? "bg-amber-500 text-white border-amber-500" : "bg-white text-amber-700 border-amber-300 hover:bg-amber-50")}>
+                  💰 보너스만{bonusFilter && <span className="text-[10px] bg-white/25 rounded px-1">ON</span>}
                 </button>
               </div>
             </div>
