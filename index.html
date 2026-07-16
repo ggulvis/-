@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.15.3";
+const APP_VERSION = "2026.07.16.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2187,12 +2187,87 @@ function BuildingEditTable({ building, rows, onSaved }) {
   );
 }
 
+/* 축하 코너 개별 카드: 이모지 반응 + 펼침형 댓글 */
+function CelebrationItem({ lease, building, profile, reactions, comments, onToggleReaction, onAddComment, onDeleteComment }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const rlist = reactions.filter((r) => r.lease_id === lease.id);
+  const reactedNames = [...new Set(rlist.map((r) => r.by_name).filter(Boolean))];
+  const clist = comments.filter((c) => c.lease_id === lease.id);
+  const isAdmin = profile.role === "admin";
+
+  const send = async () => {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    const res = await onAddComment(lease, draft);
+    setBusy(false);
+    if (res && res.ok) setDraft("");
+  };
+
+  return (
+    <div className="pb-2 border-b border-amber-100 last:border-0 last:pb-0">
+      <p className="text-sm text-slate-700 break-keep">
+        <b>{lease.contract_done_by || "동료"}</b>님이 {(building && building.name) || ""} {lease.room_number} 계약을 완료했습니다!
+        <span className="text-slate-400 ml-1">({String(lease.contract_done_at).slice(0, 10)})</span>
+      </p>
+      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+        {["👍", "❤️", "👏"].map((em) => {
+          const rs = rlist.filter((r) => r.emoji === em);
+          const mine = rs.some((r) => r.by_user === profile.user_id);
+          return (
+            <button key={em} onClick={() => onToggleReaction(lease, em)}
+              title={rs.map((r) => r.by_name).join(", ")}
+              className={"text-sm rounded-full border px-2.5 py-0.5 transition " +
+                (mine ? "bg-amber-200/70 border-amber-400" : "bg-white/70 border-slate-200 hover:bg-white")}>
+              {em}{rs.length > 0 && <b className="ml-1 text-xs text-slate-600">{rs.length}</b>}
+            </button>
+          );
+        })}
+        <button onClick={() => setOpen((v) => !v)}
+          className={"text-sm rounded-full border px-2.5 py-0.5 transition inline-flex items-center gap-1 " +
+            (open ? "bg-amber-200/70 border-amber-400" : "bg-white/70 border-slate-200 hover:bg-white")}>
+          💬 댓글{clist.length > 0 && <b className="text-xs text-slate-600">{clist.length}</b>}
+        </button>
+        {reactedNames.length > 0 && (
+          <span className="text-xs text-slate-400 break-keep">{reactedNames.join(" · ")}님이 축하했어요</span>
+        )}
+      </div>
+      {open && (
+        <div className="mt-2 space-y-1.5">
+          {clist.map((c) => (
+            <div key={c.id} className="flex items-start gap-1.5 bg-white/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-bold text-slate-600 mr-1.5">{c.by_name || "동료"}</span>
+                <span className="text-sm text-slate-700 break-keep whitespace-pre-wrap">{c.body}</span>
+              </div>
+              {(c.by_user === profile.user_id || isAdmin) && (
+                <button onClick={() => onDeleteComment(c)} title="삭제"
+                  className="text-slate-300 hover:text-red-500 text-xs leading-none shrink-0 mt-0.5">✕</button>
+              )}
+            </div>
+          ))}
+          {clist.length === 0 && <p className="text-xs text-slate-400 px-1">첫 축하 댓글을 남겨보세요 🎊</p>}
+          <div className="flex items-center gap-1.5 pt-0.5">
+            <input className={inputCls + " !py-1.5 text-sm"} value={draft} maxLength={500}
+              placeholder="축하 댓글 남기기..." onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }} />
+            <button onClick={send} disabled={busy || !draft.trim()}
+              className={btnPrimary + " !py-1.5 shrink-0"}>{busy ? "..." : "등록"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MainApp({ session, profile, onProfileChanged }) {
   const [buildings, setBuildings] = useState([]);
   const [leases, setLeases] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [events, setEvents] = useState([]);
   const [reactions, setReactions] = useState([]);
+  const [comments, setComments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [loading, setLoading] = useState(true);
@@ -2214,13 +2289,14 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
-    const [b, l, f, e, r, cs] = await Promise.all([
+    const [b, l, f, e, r, cs, cc] = await Promise.all([
       sb.from("buildings").select("*"),
       sb.from("leases").select("*"),
       sb.from("custom_fields").select("*").order("sort_order"),
       sb.from("events").select("*").order("created_at", { ascending: false }),
       sb.from("celebration_reactions").select("*"),
       sb.from("contract_submissions").select("*").order("created_at", { ascending: false }),
+      sb.from("celebration_comments").select("*").order("created_at"),
     ]);
     inactiveBuildingIds = new Set((b.data || []).filter((x) => x.active === false).map((x) => x.id));
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
@@ -2234,6 +2310,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     setCustomFields(f.data || []);
     setEvents(e.data || []);
     setReactions(r.data || []);
+    setComments(cc.data || []);
     setSubmissions(cs.data || []);
     if (profile.role === "admin") {
       const { data: la } = await sb.from("lease_admin").select("lease_id, staff");
@@ -2259,6 +2336,27 @@ function MainApp({ session, profile, onProfileChanged }) {
     });
     const { data } = await sb.from("celebration_reactions").select("*");
     setReactions(data || []);
+  };
+
+  const reloadComments = async () => {
+    const { data } = await sb.from("celebration_comments").select("*").order("created_at");
+    setComments(data || []);
+  };
+  const addComment = async (l, body) => {
+    const text = (body || "").trim();
+    if (!text) return { ok: false };
+    const { error } = await sb.from("celebration_comments").insert({
+      lease_id: l.id, body: text.slice(0, 500), by_user: profile.user_id, by_name: profile.full_name || profile.email,
+    });
+    if (error) { alert("댓글 등록 실패: " + error.message); return { ok: false }; }
+    await reloadComments();
+    return { ok: true };
+  };
+  const deleteComment = async (c) => {
+    if (!confirm("이 댓글을 삭제할까요?")) return;
+    const { error } = await sb.from("celebration_comments").delete().eq("id", c.id);
+    if (error) { alert("삭제 실패: " + error.message); return; }
+    await reloadComments();
   };
 
   const markDone = async (l) => {
@@ -2490,36 +2588,11 @@ function MainApp({ session, profile, onProfileChanged }) {
               <div className="mb-3 bg-gradient-to-r from-amber-50 to-rose-50 border border-amber-200 rounded-2xl p-4">
                 <h3 className="font-bold text-amber-800 mb-1.5">🎉 축하합니다!</h3>
                 <div className="space-y-1">
-                  {celebrations.map((l) => {
-                    const b = buildings.find((x) => x.id === l.building_id);
-                    const rlist = reactions.filter((r) => r.lease_id === l.id);
-                    const reactedNames = [...new Set(rlist.map((r) => r.by_name).filter(Boolean))];
-                    return (
-                      <div key={l.id} className="pb-2 border-b border-amber-100 last:border-0 last:pb-0">
-                        <p className="text-sm text-slate-700 break-keep">
-                          <b>{l.contract_done_by || "동료"}</b>님이 {(b && b.name) || ""} {l.room_number} 계약을 완료했습니다!
-                          <span className="text-slate-400 ml-1">({String(l.contract_done_at).slice(0, 10)})</span>
-                        </p>
-                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                          {["👍", "❤️", "👏"].map((em) => {
-                            const rs = rlist.filter((r) => r.emoji === em);
-                            const mine = rs.some((r) => r.by_user === profile.user_id);
-                            return (
-                              <button key={em} onClick={() => toggleReaction(l, em)}
-                                title={rs.map((r) => r.by_name).join(", ")}
-                                className={"text-sm rounded-full border px-2.5 py-0.5 transition " +
-                                  (mine ? "bg-amber-200/70 border-amber-400" : "bg-white/70 border-slate-200 hover:bg-white")}>
-                                {em}{rs.length > 0 && <b className="ml-1 text-xs text-slate-600">{rs.length}</b>}
-                              </button>
-                            );
-                          })}
-                          {reactedNames.length > 0 && (
-                            <span className="text-xs text-slate-400 break-keep">{reactedNames.join(" · ")}님이 축하했어요</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {celebrations.map((l) => (
+                    <CelebrationItem key={l.id} lease={l} building={buildings.find((x) => x.id === l.building_id)}
+                      profile={profile} reactions={reactions} comments={comments}
+                      onToggleReaction={toggleReaction} onAddComment={addComment} onDeleteComment={deleteComment} />
+                  ))}
                 </div>
               </div>
             )}
