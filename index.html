@@ -56,7 +56,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.4";
+const APP_VERSION = "2026.07.17.5";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -582,6 +582,7 @@ function InsMark() {
 const isInsured = (l) => !!l && (l.insurance === true || l.insurance_pending === true);
 /* 복비 보너스/덤이 붙은 매물이면 true (태그 기준: 복비·보너스·덤 포함) */
 const hasBonus = (l) => !!l && Array.isArray(l.tags) && l.tags.some((t) => /복비|보너스|덤/.test(String(t)));
+const hasEvent = (l) => !!l && !!l.event_id; // 이벤트 매물 (events 연결)
 /* 서울 주택 임대차 법정 중개보수 상한(만원). deposit·rent 만원 단위. 산정 불가 시 null.
    거래금액=보증금+월세×100(단 5천만 미만이면 ×70). 요율/한도: <5천만 0.5%·20만 / <1억 0.4%·30만 / <6억 0.3% / <12억 0.4% / <15억 0.5% / 이상 0.6% */
 function legalMaxFee(deposit, rent) {
@@ -2903,6 +2904,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [subArea, setSubArea] = useState("전체"); // 세부 동 탭
   const [insFilter, setInsFilter] = useState(false); // 보증보험 필터 (가입완료+가입중 매물 있는 건물만)
   const [bonusFilter, setBonusFilter] = useState(false); // 복비 보너스 필터 (보너스 태그 매물만)
+  const [eventFilter, setEventFilter] = useState(false); // 이벤트 매물 필터 (event_id 연결 매물만)
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // {type:'lease'|'building'|'admin'|'profile', ...}
   const [menuOpen, setMenuOpen] = useState(false);
@@ -3092,9 +3094,10 @@ function MainApp({ session, profile, onProfileChanged }) {
     let src = leases;
     if (insFilter) src = src.filter(isInsured);
     if (bonusFilter) src = src.filter(hasBonus);
+    if (eventFilter) src = src.filter(hasEvent);
     src.forEach((l) => { (m[l.building_id] = m[l.building_id] || []).push(l); });
     return m;
-  }, [leases, insFilter, bonusFilter]);
+  }, [leases, insFilter, bonusFilter, eventFilter]);
 
   const q = search.trim().toLowerCase();
   // 건물별 가장 급한 만기일 (계약완료 제외)
@@ -3121,6 +3124,11 @@ function MainApp({ session, profile, onProfileChanged }) {
     leases.forEach((l) => { if (hasBonus(l)) s[l.building_id] = true; });
     return s;
   }, [leases]);
+  const buildingEvent = useMemo(() => {
+    const s = {};
+    leases.forEach((l) => { if (hasEvent(l)) s[l.building_id] = true; });
+    return s;
+  }, [leases]);
   const filteredBuildings = useMemo(() => {
     let list = buildings;
     if (region !== "all") {
@@ -3131,6 +3139,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     }
     if (insFilter) list = list.filter((b) => buildingInsured[b.id]);
     if (bonusFilter) list = list.filter((b) => buildingBonus[b.id]);
+    if (eventFilter) list = list.filter((b) => buildingEvent[b.id]);
     if (q) {
       list = list.filter((b) => {
         if (b.name.toLowerCase().includes(q)) return true;
@@ -3151,7 +3160,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       if (!!ua !== !!ub) return ua ? -1 : 1;
       return a.name.localeCompare(b.name, "ko");
     });
-  }, [q, region, subArea, insFilter, bonusFilter, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured, buildingBonus]);
+  }, [q, region, subArea, insFilter, bonusFilter, eventFilter, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured, buildingBonus, buildingEvent]);
 
   const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
   const dupCount = useMemo(() => {
@@ -3308,6 +3317,10 @@ function MainApp({ session, profile, onProfileChanged }) {
                 <button onClick={() => setBonusFilter((v) => !v)}
                   className={"px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border inline-flex items-center gap-1 " + (bonusFilter ? "bg-amber-500 text-white border-amber-500" : "bg-white text-amber-700 border-amber-300 hover:bg-amber-50")}>
                   💰 보너스만{bonusFilter && <span className="text-[10px] bg-white/25 rounded px-1">ON</span>}
+                </button>
+                <button onClick={() => setEventFilter((v) => !v)}
+                  className={"px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border inline-flex items-center gap-1 " + (eventFilter ? "bg-rose-500 text-white border-rose-500" : "bg-white text-rose-600 border-rose-300 hover:bg-rose-50")}>
+                  🎡 이벤트만{eventFilter && <span className="text-[10px] bg-white/25 rounded px-1">ON</span>}
                 </button>
               </div>
             </div>
