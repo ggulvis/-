@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.9";
+const APP_VERSION = "2026.07.17.10";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -412,17 +412,42 @@ function RegisterScreen({ session, onDone }) {
     </div>
   );
 }
-function PendingScreen({ profile }) {
+function PendingScreen({ profile, onUpdated }) {
+  const [aff, setAff] = useState(profile.affiliation || "");
+  const [name, setName] = useState(profile.full_name || "");
+  const [phone, setPhone] = useState(profile.phone || "");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const dirty = aff.trim() !== (profile.affiliation || "") || name.trim() !== (profile.full_name || "") || phone.trim() !== (profile.phone || "");
+  const save = async () => {
+    setBusy(true);
+    const { error } = await sb.from("user_roles").update({
+      affiliation: aff.trim() || null, full_name: name.trim() || null, phone: phone.trim() || null,
+    }).eq("user_id", profile.user_id);
+    setBusy(false);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    setSaved(true);
+    if (onUpdated) onUpdated();
+  };
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm text-center">
-        <div className="text-4xl mb-3">⏳</div>
-        <h1 className="text-xl font-bold text-slate-800 mb-2">승인 대기 중</h1>
-        <p className="text-sm text-slate-500 leading-relaxed mb-6">
-          {profile.full_name}님의 등록 요청이 접수되었습니다.<br />관리자가 승인하면 이용할 수 있습니다.
+        <div className="text-4xl mb-2">⏳</div>
+        <h1 className="text-xl font-bold text-slate-800 mb-1">승인 대기 중</h1>
+        <p className="text-sm text-slate-500 leading-relaxed mb-4">
+          가입 신청이 접수됐어요.<br />관리자가 승인하면 바로 이용할 수 있습니다.
         </p>
-        <button className={btnGhost + " w-full"} onClick={() => window.location.reload()}>새로고침</button>
-        <button className="w-full text-center text-sm text-slate-400 mt-4 hover:text-slate-600" onClick={() => sb.auth.signOut()}>로그아웃</button>
+        <div className="text-left bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
+          <p className="text-xs text-amber-800 mb-2 break-keep">아래를 채워주시면 <b>관리자가 알아보고 더 빨리 승인</b>해드려요 (선택).</p>
+          <Field label="소속 (중개사무소)"><input className={inputCls} value={aff} onChange={(e) => { setAff(e.target.value); setSaved(false); }} placeholder="예: 보담공인중개사" /></Field>
+          <Field label="이름"><input className={inputCls} value={name} onChange={(e) => { setName(e.target.value); setSaved(false); }} placeholder="예: 홍길동" /></Field>
+          <Field label="연락처"><input className={inputCls} value={phone} onChange={(e) => { setPhone(e.target.value); setSaved(false); }} placeholder="010-0000-0000" inputMode="tel" /></Field>
+          <button className={btnPrimary + " w-full"} onClick={save} disabled={busy || (!dirty && saved)}>
+            {busy ? "저장 중..." : saved && !dirty ? "저장됐어요 ✓" : "정보 저장"}
+          </button>
+        </div>
+        <button className={btnGhost + " w-full"} onClick={() => window.location.reload()}>승인됐는지 새로고침</button>
+        <button className="w-full text-center text-sm text-slate-400 mt-3 hover:text-slate-600" onClick={() => sb.auth.signOut()}>로그아웃</button>
       </div>
     </div>
   );
@@ -3772,6 +3797,16 @@ function App() {
         data = { ...byEmail, user_id: uid };
       }
     }
+    if (!data && session) {
+      // 신규: 로그인만으로 자동 대기 등록 (폼 없이) — 관리자가 즉시 명단에서 보고 승인. 이름은 구글에서 자동
+      const gname = (session.user.user_metadata && (session.user.user_metadata.full_name || session.user.user_metadata.name)) || "";
+      await sb.from("user_roles").upsert(
+        { user_id: uid, email: session.user.email, full_name: gname, role: "viewer", status: "pending" },
+        { onConflict: "email" }
+      );
+      const re = await sb.from("user_roles").select("*").eq("user_id", uid).maybeSingle();
+      data = re.data || null;
+    }
     setProfile(data || null);
   };
   useEffect(() => {
@@ -3783,7 +3818,7 @@ function App() {
   if (!session) return <LoginScreen />;
   if (profile === undefined) return <div className="min-h-screen flex items-center justify-center text-slate-400">프로필 확인 중...</div>;
   if (profile === null) return <RegisterScreen session={session} onDone={() => loadProfile(session.user.id)} />;
-  if (profile.status !== "active") return <PendingScreen profile={profile} />;
+  if (profile.status !== "active") return <PendingScreen profile={profile} onUpdated={() => loadProfile(session.user.id)} />;
   return <MainApp session={session} profile={profile} onProfileChanged={() => loadProfile(session.user.id)} />;
 }
 
