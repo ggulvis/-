@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.8";
+const APP_VERSION = "2026.07.17.9";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2980,6 +2980,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const notifBaseline = useRef(null); // 이 시각 이후의 축하만 알림 (localStorage 영속)
   const [pushOn, setPushOn] = useState(false); // 푸시 알림 구독 여부
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushPrompt, setPushPrompt] = useState(false); // 로그인 후 알림 권유 배너
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -3302,11 +3303,22 @@ function MainApp({ session, profile, onProfileChanged }) {
     });
   }, [reactions, comments, leases, buildings]);
 
-  // 푸시 알림: SW 등록 + 현재 구독 상태 확인
+  // 푸시 알림: SW 등록 + 구독 상태 확인. 이미 허용됐으면 조용히 재구독, 아직 안 물었으면 권유 배너 1회
   useEffect(() => {
     if (!pushSupported()) return;
     getSWRegistration();
-    isPushSubscribed().then(setPushOn);
+    (async () => {
+      const subbed = await isPushSubscribed();
+      setPushOn(subbed);
+      if (subbed) return;
+      if (Notification.permission === "granted") {
+        try { await subscribePush(profile); setPushOn(true); return; } catch (e) {}
+      }
+      let dismissed = false;
+      try { dismissed = localStorage.getItem("bodam_push_dismissed") === "1"; } catch (e) {}
+      const iosBlocked = isIOS() && !isStandalone(); // 아이폰은 홈 화면 추가 전엔 애초에 불가 → 권유 안 함
+      if (Notification.permission === "default" && !dismissed && !iosBlocked) setPushPrompt(true);
+    })();
   }, []);
   const togglePush = async () => {
     if (pushBusy) return;
@@ -3375,6 +3387,15 @@ function MainApp({ session, profile, onProfileChanged }) {
         <div className="bg-blue-600 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 flex-wrap">
           <span className="font-medium">{updating ? "⏳ 새 버전을 받아 적용하는 중이에요..." : "✨ 새 버전이 나왔어요. 업데이트하면 최신 기능이 적용됩니다."}</span>
           <button className="bg-white text-blue-700 font-bold rounded-lg px-3 py-1 active:bg-blue-50 disabled:opacity-60" onClick={applyUpdate} disabled={updating}>{updating ? "적용 중..." : "지금 업데이트"}</button>
+        </div>
+      )}
+      {/* 축하 알림 권유 배너 (앱 꺼져 있어도 잠금화면 알림) */}
+      {pushPrompt && !pushOn && (
+        <div className="bg-amber-500 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 flex-wrap">
+          <span className="font-medium">🔔 내 계약을 축하받으면 알림으로 알려드릴까요?</span>
+          <button className="bg-white text-amber-700 font-bold rounded-lg px-3 py-1 active:bg-amber-50 disabled:opacity-60" disabled={pushBusy}
+            onClick={async () => { setPushPrompt(false); await togglePush(); }}>{pushBusy ? "설정 중..." : "네, 받을게요"}</button>
+          <button className="text-white/90 underline text-xs" onClick={() => { setPushPrompt(false); try { localStorage.setItem("bodam_push_dismissed", "1"); } catch (e) {} }}>나중에</button>
         </div>
       )}
       {/* 헤더 */}
