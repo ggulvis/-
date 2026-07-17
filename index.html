@@ -24,6 +24,8 @@
   body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; touch-action: manipulation; }
   .scrollbar-thin::-webkit-scrollbar { height: 6px; width: 6px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-12px) scale(.97); } to { opacity: 1; transform: none; } }
+  .animate-pulse-once { animation: toastIn .3s ease-out; }
 </style>
 </head>
 <body class="bg-slate-100">
@@ -56,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.6";
+const APP_VERSION = "2026.07.17.7";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2923,6 +2925,8 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [refreshing, setRefreshing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const [updateReady, setUpdateReady] = useState(false); // 새 버전 배포 감지
+  const [notifToasts, setNotifToasts] = useState([]); // 인앱 축하 알림 토스트
+  const notifBaseline = useRef(null); // 이 시각 이후의 축하만 알림 (localStorage 영속)
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -3198,6 +3202,48 @@ function MainApp({ session, profile, onProfileChanged }) {
       .slice(0, 2); // 최근 2건만 게시
   }, [leases]);
 
+  // 인앱 축하 알림: 내 계약(contract_done_by=내 이름)에 달린 남의 반응/댓글 중 새 것을 토스트로 표시
+  useEffect(() => {
+    const key = "bodam_notif_since_" + profile.user_id;
+    if (notifBaseline.current === null) {
+      let stored = null;
+      try { stored = localStorage.getItem(key); } catch (e) {}
+      notifBaseline.current = stored || new Date().toISOString();
+      if (!stored) { try { localStorage.setItem(key, notifBaseline.current); } catch (e) {} return; } // 첫 방문은 과거분 미표시
+    }
+    const myName = profile.full_name || profile.email;
+    const myLeaseIds = new Set(leases.filter((l) => l.contract_done && l.contract_done_by === myName).map((l) => l.id));
+    if (myLeaseIds.size === 0) return;
+    const roomOf = (lid) => {
+      const l = leases.find((x) => x.id === lid); if (!l) return "";
+      const b = buildings.find((x) => x.id === l.building_id);
+      return ((b && b.name) || "") + " " + (l.room_number || "");
+    };
+    const base = notifBaseline.current;
+    const items = [];
+    reactions.forEach((r) => {
+      if (myLeaseIds.has(r.lease_id) && r.by_user !== profile.user_id && r.created_at && String(r.created_at) > base)
+        items.push({ at: String(r.created_at), text: (r.by_name || "동료") + "님이 " + roomOf(r.lease_id) + " 계약을 축하했어요 " + (r.emoji || "🎉") });
+    });
+    comments.forEach((c) => {
+      if (myLeaseIds.has(c.lease_id) && c.by_user !== profile.user_id && c.created_at && String(c.created_at) > base)
+        items.push({ at: String(c.created_at), text: (c.by_name || "동료") + '님의 축하 댓글: "' + String(c.body).slice(0, 30) + '"' });
+    });
+    if (items.length === 0) return;
+    items.sort((a, b) => a.at.localeCompare(b.at));
+    const latest = items[items.length - 1].at;
+    notifBaseline.current = latest;
+    try { localStorage.setItem(key, latest); } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate([80, 40, 80]); } catch (e) {}
+    const shown = items.length <= 3 ? items : [...items.slice(0, 2), { at: latest, text: "그 외 " + (items.length - 2) + "명이 더 축하했어요 🎊" }];
+    const baseId = Date.now();
+    shown.forEach((it, i) => {
+      const id = baseId + i;
+      setNotifToasts((t) => [...t, { id, text: it.text }]);
+      setTimeout(() => setNotifToasts((t) => t.filter((x) => x.id !== id)), 8000);
+    });
+  }, [reactions, comments, leases, buildings]);
+
   const openLease = (l) => setModal(canEdit ? { type: "lease", lease: l } : { type: "detail", lease: l });
 
   const exportExcel = () => {
@@ -3231,6 +3277,20 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   return (
     <div className="min-h-screen pb-10">
+      {/* 인앱 축하 알림 토스트 */}
+      {notifToasts.length > 0 && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[92%] max-w-sm space-y-2 pointer-events-none">
+          {notifToasts.map((t) => (
+            <div key={t.id} onClick={() => { setView({ name: "home" }); setSearch(""); setNotifToasts((x) => x.filter((y) => y.id !== t.id)); }}
+              className="pointer-events-auto cursor-pointer bg-white border-2 border-amber-300 shadow-xl rounded-2xl px-4 py-3 flex items-start gap-2 animate-pulse-once">
+              <span className="text-xl shrink-0">🎉</span>
+              <span className="text-sm font-medium text-slate-700 break-keep flex-1">{t.text}</span>
+              <button onClick={(e) => { e.stopPropagation(); setNotifToasts((x) => x.filter((y) => y.id !== t.id)); }}
+                className="text-slate-300 hover:text-slate-500 text-lg leading-none shrink-0">×</button>
+            </div>
+          ))}
+        </div>
+      )}
       {/* 새 버전 업데이트 배너 */}
       {updateReady && (
         <div className="bg-blue-600 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 flex-wrap">
