@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.10";
+const APP_VERSION = "2026.07.17.11";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -381,17 +381,42 @@ function LoginScreen() {
     </div>
   );
 }
+/* 소속 = 상호명 + 유형(공인중개사사무소/중개법인). 저장은 "상호명 유형" 결합 문자열 하나(affiliation) */
+const BIZ_TYPES = ["공인중개사사무소", "중개법인"];
+function splitAffiliation(v) {
+  const s = (v || "").trim();
+  for (const t of BIZ_TYPES) { if (s.endsWith(t)) return { name: s.slice(0, s.length - t.length).trim(), type: t }; }
+  return { name: s, type: "" };
+}
+function joinAffiliation(name, type) {
+  const n = (name || "").trim();
+  if (!n) return "";
+  return type ? (n + " " + type) : n;
+}
+function AffiliationFields({ name, type, onName, onType }) {
+  return (
+    <div className="flex gap-2">
+      <input className={inputCls + " flex-1 min-w-0"} value={name} onChange={(e) => onName(e.target.value)} placeholder="상호명 (예: 보담)" />
+      <select className="border border-slate-300 rounded-lg px-2 py-2 text-sm bg-white shrink-0 w-32" value={type} onChange={(e) => onType(e.target.value)}>
+        <option value="">유형 선택</option>
+        {BIZ_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function RegisterScreen({ session, onDone }) {
-  const [aff, setAff] = useState("");
+  const [affName, setAffName] = useState("");
+  const [affType, setAffType] = useState("");
   const [name, setName] = useState(session.user.user_metadata?.full_name || "");
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const submit = async () => {
-    if (!aff.trim() || !name.trim() || !phone.trim()) { setErr("소속·이름·연락처를 모두 입력해주세요."); return; }
+    if (!affName.trim() || !name.trim() || !phone.trim()) { setErr("소속·이름·연락처를 모두 입력해주세요."); return; }
     setBusy(true); setErr("");
     const { error } = await sb.from("user_roles").upsert({
-      user_id: session.user.id, email: session.user.email, affiliation: aff.trim(), full_name: name.trim(), phone: phone.trim(), role: "viewer", status: "pending",
+      user_id: session.user.id, email: session.user.email, affiliation: joinAffiliation(affName, affType), full_name: name.trim(), phone: phone.trim(), role: "viewer", status: "pending",
     }, { onConflict: "email" });
     setBusy(false);
     if (error) setErr("등록 실패: " + error.message); else onDone();
@@ -401,7 +426,7 @@ function RegisterScreen({ session, onDone }) {
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
         <h1 className="text-xl font-bold text-slate-800 mb-1">사용자 등록</h1>
         <p className="text-sm text-slate-500 mb-6">처음 방문하셨네요. 정보를 입력하면 관리자 승인 후 이용할 수 있습니다.</p>
-        <Field label="소속 * (회사/팀)"><input className={inputCls} value={aff} onChange={(e) => setAff(e.target.value)} placeholder="예: 보담공인중개사" /></Field>
+        <Field label="소속 * (상호명 + 유형)"><AffiliationFields name={affName} type={affType} onName={setAffName} onType={setAffType} /></Field>
         <Field label="이름 *"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 홍길동" /></Field>
         <p className="text-xs text-slate-400 -mt-1 mb-3">본인 이름을 적어주세요. 계약 축하·실적에 이 이름이 표시됩니다.</p>
         <Field label="연락처 *"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="010-0000-0000" inputMode="tel" /></Field>
@@ -413,16 +438,19 @@ function RegisterScreen({ session, onDone }) {
   );
 }
 function PendingScreen({ profile, onUpdated }) {
-  const [aff, setAff] = useState(profile.affiliation || "");
+  const initAff = splitAffiliation(profile.affiliation);
+  const [affName, setAffName] = useState(initAff.name);
+  const [affType, setAffType] = useState(initAff.type);
   const [name, setName] = useState(profile.full_name || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const dirty = aff.trim() !== (profile.affiliation || "") || name.trim() !== (profile.full_name || "") || phone.trim() !== (profile.phone || "");
+  const combinedAff = joinAffiliation(affName, affType);
+  const dirty = combinedAff !== (profile.affiliation || "") || name.trim() !== (profile.full_name || "") || phone.trim() !== (profile.phone || "");
   const save = async () => {
     setBusy(true);
     const { error } = await sb.from("user_roles").update({
-      affiliation: aff.trim() || null, full_name: name.trim() || null, phone: phone.trim() || null,
+      affiliation: combinedAff || null, full_name: name.trim() || null, phone: phone.trim() || null,
     }).eq("user_id", profile.user_id);
     setBusy(false);
     if (error) { alert("저장 실패: " + error.message); return; }
@@ -439,7 +467,7 @@ function PendingScreen({ profile, onUpdated }) {
         </p>
         <div className="text-left bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
           <p className="text-xs text-amber-800 mb-2 break-keep">아래를 채워주시면 <b>관리자가 알아보고 더 빨리 승인</b>해드려요 (선택).</p>
-          <Field label="소속 (중개사무소)"><input className={inputCls} value={aff} onChange={(e) => { setAff(e.target.value); setSaved(false); }} placeholder="예: 보담공인중개사" /></Field>
+          <Field label="소속 (상호명 + 유형)"><AffiliationFields name={affName} type={affType} onName={(v) => { setAffName(v); setSaved(false); }} onType={(v) => { setAffType(v); setSaved(false); }} /></Field>
           <Field label="이름"><input className={inputCls} value={name} onChange={(e) => { setName(e.target.value); setSaved(false); }} placeholder="예: 홍길동" /></Field>
           <Field label="연락처"><input className={inputCls} value={phone} onChange={(e) => { setPhone(e.target.value); setSaved(false); }} placeholder="010-0000-0000" inputMode="tel" /></Field>
           <button className={btnPrimary + " w-full"} onClick={save} disabled={busy || (!dirty && saved)}>
@@ -933,7 +961,9 @@ function BuildingModal({ building, onClose, onSaved }) {
 /* ---------------- 프로필 모달 ---------------- */
 function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDone }) {
   const [tab, setTab] = useState("contracts"); // 기본 탭: 내가 한 계약 (profile | contracts)
-  const [aff, setAff] = useState(profile.affiliation || "");
+  const initAff = splitAffiliation(profile.affiliation);
+  const [affName, setAffName] = useState(initAff.name);
+  const [affType, setAffType] = useState(initAff.type);
   const [name, setName] = useState(profile.full_name || "");
   const [phone, setPhone] = useState(profile.phone || "");
   const [busy, setBusy] = useState(false);
@@ -948,7 +978,7 @@ function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDo
   const save = async () => {
     if (!name.trim() || !phone.trim()) { setErr("이름과 연락처를 입력하세요."); return; }
     setBusy(true); setErr("");
-    const { error } = await sb.from("user_roles").update({ affiliation: aff.trim() || null, full_name: name.trim(), phone: phone.trim() }).eq("id", profile.id);
+    const { error } = await sb.from("user_roles").update({ affiliation: joinAffiliation(affName, affType) || null, full_name: name.trim(), phone: phone.trim() }).eq("id", profile.id);
     setBusy(false);
     if (error) setErr("저장 실패: " + error.message); else { onSaved(); onClose(); }
   };
@@ -1018,7 +1048,7 @@ function ProfileModal({ profile, leases, buildings, onClose, onSaved, onCancelDo
         <p>{profile.email}</p>
         <p className="mt-1">권한: <RoleBadge role={profile.role} /></p>
       </div>
-      <Field label="소속 (회사/팀)"><input className={inputCls} value={aff} onChange={(e) => setAff(e.target.value)} placeholder="예: 보담공인중개사" /></Field>
+      <Field label="소속 (상호명 + 유형)"><AffiliationFields name={affName} type={affType} onName={setAffName} onType={setAffType} /></Field>
       <Field label={"이름 (예: 홍길동)"}><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" /></Field>
       <Field label="연락처"><input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></Field>
       {err && <p className="text-sm text-red-600 mb-3">{err}</p>}
