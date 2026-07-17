@@ -58,9 +58,60 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.17.7";
+const APP_VERSION = "2026.07.17.8";
 
 const { useState, useEffect, useMemo, useRef } = React;
+
+/* ---------------- 푸시 알림 (앱이 꺼져 있어도 잠금화면 알림) ---------------- */
+const VAPID_PUBLIC = "BAH6PJJA0pHDquA3FmZumQ-chSkXz8XDyCtEZMUVnL_4o0flCebGe9BiWzs5qojsiGPSfyrPDnAwZtImgw6RQFA";
+const pushSupported = () => typeof navigator !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+// iOS는 홈 화면에 추가된 PWA(standalone)에서만 푸시 가능
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+async function getSWRegistration() {
+  if (!("serviceWorker" in navigator)) return null;
+  try { return await navigator.serviceWorker.register("/sw.js"); } catch (e) { return null; }
+}
+async function subscribePush(profile) {
+  const reg = await getSWRegistration();
+  if (!reg) throw new Error("서비스 워커 등록 실패");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("알림 권한이 허용되지 않았어요.");
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC) });
+  const j = sub.toJSON();
+  const { error } = await sb.from("push_subscriptions").upsert({
+    user_id: profile.user_id, endpoint: sub.endpoint,
+    p256dh: j.keys.p256dh, auth: j.keys.auth, user_name: profile.full_name || profile.email,
+  }, { onConflict: "endpoint" });
+  if (error) throw error;
+  return true;
+}
+async function unsubscribePush(profile) {
+  const reg = await getSWRegistration();
+  const sub = reg && (await reg.pushManager.getSubscription());
+  if (sub) { try { await sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); } catch (e) {} await sub.unsubscribe(); }
+}
+async function isPushSubscribed() {
+  if (!pushSupported()) return false;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg && (await reg.pushManager.getSubscription());
+    return !!sub && Notification.permission === "granted";
+  } catch (e) { return false; }
+}
+// 축하 반응/댓글 후 피축하자에게 푸시 발송 (실패해도 무시 — 인앱 토스트가 폴백)
+async function firePush(lease_id, text) {
+  try { await sb.functions.invoke("send-celebration-push", { body: { lease_id, text } }); } catch (e) { /* 무시 */ }
+}
 
 /* ---------------- 유틸 ---------------- */
 function dday(end) {
@@ -2927,6 +2978,8 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [updateReady, setUpdateReady] = useState(false); // 새 버전 배포 감지
   const [notifToasts, setNotifToasts] = useState([]); // 인앱 축하 알림 토스트
   const notifBaseline = useRef(null); // 이 시각 이후의 축하만 알림 (localStorage 영속)
+  const [pushOn, setPushOn] = useState(false); // 푸시 알림 구독 여부
+  const [pushBusy, setPushBusy] = useState(false);
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -2979,9 +3032,13 @@ function MainApp({ session, profile, onProfileChanged }) {
   const toggleReaction = async (l, emoji) => {
     const mine = reactions.find((r) => r.lease_id === l.id && r.emoji === emoji && r.by_user === profile.user_id);
     if (mine) await sb.from("celebration_reactions").delete().eq("id", mine.id);
-    else await sb.from("celebration_reactions").insert({
-      lease_id: l.id, emoji, by_user: profile.user_id, by_name: profile.full_name || profile.email,
-    });
+    else {
+      await sb.from("celebration_reactions").insert({
+        lease_id: l.id, emoji, by_user: profile.user_id, by_name: profile.full_name || profile.email,
+      });
+      // 계약자에게 푸시 (본인 계약이면 함수가 걸러냄)
+      firePush(l.id, (profile.full_name || "동료") + "님이 계약을 축하했어요 " + emoji);
+    }
     const { data } = await sb.from("celebration_reactions").select("*");
     setReactions(data || []);
   };
@@ -2997,6 +3054,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       lease_id: l.id, body: text.slice(0, 500), by_user: profile.user_id, by_name: profile.full_name || profile.email,
     });
     if (error) { alert("댓글 등록 실패: " + error.message); return { ok: false }; }
+    firePush(l.id, (profile.full_name || "동료") + "님의 축하 댓글: " + text.slice(0, 30));
     await reloadComments();
     return { ok: true };
   };
@@ -3244,6 +3302,27 @@ function MainApp({ session, profile, onProfileChanged }) {
     });
   }, [reactions, comments, leases, buildings]);
 
+  // 푸시 알림: SW 등록 + 현재 구독 상태 확인
+  useEffect(() => {
+    if (!pushSupported()) return;
+    getSWRegistration();
+    isPushSubscribed().then(setPushOn);
+  }, []);
+  const togglePush = async () => {
+    if (pushBusy) return;
+    if (!pushSupported()) { alert("이 브라우저는 알림을 지원하지 않아요."); return; }
+    if (isIOS() && !isStandalone()) {
+      alert("아이폰·아이패드에서는 먼저 이 앱을 홈 화면에 추가해야 알림을 받을 수 있어요.\n\n공유 버튼(￢) → '홈 화면에 추가' → 홈 화면의 보담 아이콘으로 열어서 다시 켜주세요.");
+      return;
+    }
+    setPushBusy(true);
+    try {
+      if (pushOn) { await unsubscribePush(profile); setPushOn(false); }
+      else { await subscribePush(profile); setPushOn(true); alert("알림을 켰어요! 누가 내 계약을 축하하면 잠금화면으로 알려드릴게요 🎉"); }
+    } catch (e) { alert("알림 설정 실패: " + (e.message || e)); }
+    finally { setPushBusy(false); }
+  };
+
   const openLease = (l) => setModal(canEdit ? { type: "lease", lease: l } : { type: "detail", lease: l });
 
   const exportExcel = () => {
@@ -3340,6 +3419,12 @@ function MainApp({ session, profile, onProfileChanged }) {
                   {lastSync && <p className="text-[11px] text-slate-400 mt-1">마지막 업데이트 {new Date(lastSync).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</p>}
                 </div>
                 <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); manualRefresh(); }}>🔄 새로고침</button>
+                {pushSupported() && (
+                  <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center justify-between" onClick={togglePush} disabled={pushBusy}>
+                    <span>{pushOn ? "🔔 축하 알림 켜짐" : "🔕 축하 알림 켜기"}</span>
+                    <span className={"text-[11px] font-bold rounded-full px-2 py-0.5 " + (pushOn ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500")}>{pushBusy ? "..." : pushOn ? "ON" : "OFF"}</span>
+                  </button>
+                )}
                 {(isAdmin || canApprove) && (
                   <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); setModal({ type: "admin" }); }}>{isAdmin ? "관리자 패널" : "가입 승인"}</button>
                 )}
