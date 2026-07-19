@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.19.2";
+const APP_VERSION = "2026.07.19.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1146,6 +1146,8 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
 
 /* ---------------- 매물 상세 팝업 (열람용) ---------------- */
 function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, staff, onClose, onEdit, onMarkDone, onCancelDone, onUpload }) {
+  // 조회수 기록 (매물 상세를 열 때 1회). 실패해도 무시 — 테이블/함수 미생성 시에도 무해
+  useEffect(() => { try { sb.rpc("log_lease_view", { p_lease: lease.id }).then(() => {}, () => {}); } catch (e) {} }, [lease.id]);
   const mayCancel = lease.contract_done && (canEdit || (me && lease.contract_done_by === (me.full_name || me.email)));
   const b = buildings.find((x) => x.id === lease.building_id) || {};
   const ev = events.find((e) => e.id === lease.event_id);
@@ -2295,6 +2297,17 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
         });
     }
   }, [tab]);
+  const [views, setViews] = useState(null); // 매물 조회수 (admin 전용)
+  const [viewsErr, setViewsErr] = useState("");
+  useEffect(() => {
+    if (tab === "views" && views === null) {
+      sb.rpc("lease_view_ranking")
+        .then(({ data, error }) => {
+          if (error) setViewsErr(error.message);
+          setViews(data || []);
+        });
+    }
+  }, [tab]);
   const [newField, setNewField] = useState("");
   const [msg, setMsg] = useState("");
   const [importResult, setImportResult] = useState(null);
@@ -2459,6 +2472,7 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
         <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1">
           {tabBtn("users", "사용자 관리", pendingUsers.length)}
           {tabBtn("usage", "이용 현황")}
+          {tabBtn("views", "매물 조회수")}
           {tabBtn("records", "계약 실적")}
           {tabBtn("fields", "커스텀 필드")}
           {tabBtn("excel", "엑셀 업로드")}
@@ -2528,6 +2542,51 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
                     </div>
                   ))}
                 </div>
+              </React.Fragment>
+            )}
+          </div>
+        );
+      })()}
+
+      {tab === "views" && isAdminU && (() => {
+        const rows = (views || []);
+        const totalViews = rows.reduce((s, r) => s + Number(r.total_views || 0), 0);
+        const fmtWhen = (iso) => {
+          if (!iso) return "";
+          const d = new Date(iso), t = new Date(), dayMs = 86400000;
+          const days = Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / dayMs);
+          return days <= 0 ? "오늘" : days === 1 ? "어제" : days + "일 전";
+        };
+        return (
+          <div className="pb-2">
+            {views === null ? (
+              <p className="text-sm text-slate-400 text-center py-6">불러오는 중...</p>
+            ) : viewsErr ? (
+              <p className="text-sm text-amber-600 text-center py-6 break-keep">조회수 기록이 아직 준비되지 않았습니다.<br />관리용 SQL을 실행하면 이때부터 매물 조회가 집계됩니다.</p>
+            ) : (
+              <React.Fragment>
+                <div className="flex flex-wrap gap-2 mb-3 text-sm">
+                  <span className="bg-sky-50 border border-sky-200 text-sky-800 rounded-full px-3 py-1 font-semibold">누적 조회 <b>{totalViews.toLocaleString()}</b></span>
+                  <span className="bg-slate-50 border border-slate-200 text-slate-600 rounded-full px-3 py-1">매물 상세를 연 횟수 기준 · 조회 많은 순</span>
+                </div>
+                {rows.length === 0 ? (
+                  <p className="text-xs text-slate-400 mb-2 break-keep">아직 조회 기록이 없습니다. 이번 버전 배포 후 누군가 매물 상세를 열면 쌓입니다.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {rows.map((r, i) => (
+                      <div key={r.lease_id} className="flex items-center justify-between border rounded-xl px-3 py-2 bg-white gap-2">
+                        <span className="min-w-0 truncate text-sm">
+                          <span className="text-slate-400 mr-1.5 tabular-nums">{i + 1}</span>
+                          <b className="text-slate-800">{r.building_name || "-"} {fmtRoom(r.room_number)}</b>
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className="text-sm font-bold text-sky-600">{Number(r.total_views).toLocaleString()}회</span>
+                          <span className="block text-[11px] text-slate-400">{r.viewers}명 · {fmtWhen(r.last_at)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </React.Fragment>
             )}
           </div>
