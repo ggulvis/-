@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.19.1";
+const APP_VERSION = "2026.07.19.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3461,7 +3461,7 @@ function MainApp({ session, profile, onProfileChanged }) {
             <span className="hidden xs:inline sm:inline">보담 임대관리</span>
           </button>
           <div className="flex-1" />
-          <a href="https://ggulbang.com" target="_blank" rel="noopener noreferrer"
+          <a href="https://www.ggulbang.com" target="_blank" rel="noopener noreferrer"
             className="text-sm font-semibold px-3 py-1.5 rounded-lg text-amber-700 hover:bg-amber-50 inline-flex items-center gap-1 shrink-0" title="꿀방 홈으로 이동">
             🍯 <span className="hidden xs:inline sm:inline">꿀방</span> <span className="text-[10px] text-amber-400">↗</span>
           </a>
