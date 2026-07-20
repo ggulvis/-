@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.19.3";
+const APP_VERSION = "2026.07.19.4";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2308,6 +2308,16 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
         });
     }
   }, [tab]);
+  const [openView, setOpenView] = useState(null); // 펼친 매물 lease_id
+  const [viewerMap, setViewerMap] = useState({}); // lease_id → 조회자 목록
+  const toggleViewers = async (leaseId) => {
+    if (openView === leaseId) { setOpenView(null); return; }
+    setOpenView(leaseId);
+    if (!viewerMap[leaseId]) {
+      const { data } = await sb.rpc("lease_view_viewers", { p_lease: leaseId });
+      setViewerMap((m) => ({ ...m, [leaseId]: data || [] }));
+    }
+  };
   const [newField, setNewField] = useState("");
   const [msg, setMsg] = useState("");
   const [importResult, setImportResult] = useState(null);
@@ -2573,18 +2583,42 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
                   <p className="text-xs text-slate-400 mb-2 break-keep">아직 조회 기록이 없습니다. 이번 버전 배포 후 누군가 매물 상세를 열면 쌓입니다.</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {rows.map((r, i) => (
-                      <div key={r.lease_id} className="flex items-center justify-between border rounded-xl px-3 py-2 bg-white gap-2">
-                        <span className="min-w-0 truncate text-sm">
-                          <span className="text-slate-400 mr-1.5 tabular-nums">{i + 1}</span>
-                          <b className="text-slate-800">{r.building_name || "-"} {fmtRoom(r.room_number)}</b>
-                        </span>
-                        <span className="shrink-0 text-right">
-                          <span className="text-sm font-bold text-sky-600">{Number(r.total_views).toLocaleString()}회</span>
-                          <span className="block text-[11px] text-slate-400">{r.viewers}명 · {fmtWhen(r.last_at)}</span>
-                        </span>
+                    {rows.map((r, i) => {
+                      const isOpen = openView === r.lease_id;
+                      const vl = viewerMap[r.lease_id];
+                      return (
+                      <div key={r.lease_id} className="border rounded-xl bg-white">
+                        <button onClick={() => toggleViewers(r.lease_id)} className="w-full flex items-center justify-between px-3 py-2 gap-2 text-left active:bg-slate-50">
+                          <span className="min-w-0 truncate text-sm">
+                            <span className="text-slate-400 mr-1.5 tabular-nums">{i + 1}</span>
+                            <b className="text-slate-800">{r.building_name || "-"} {fmtRoom(r.room_number)}</b>
+                            <span className="text-slate-300 ml-1.5 text-xs">{isOpen ? "▲" : "▾"}</span>
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="text-sm font-bold text-sky-600">{Number(r.total_views).toLocaleString()}회</span>
+                            <span className="block text-[11px] text-slate-400">{r.viewers}명 · {fmtWhen(r.last_at)}</span>
+                          </span>
+                        </button>
+                        {isOpen && (
+                          <div className="px-3 pb-2.5 pt-0.5 border-t border-slate-100">
+                            {vl === undefined ? (
+                              <p className="text-xs text-slate-400 py-1.5">불러오는 중...</p>
+                            ) : vl.length === 0 ? (
+                              <p className="text-xs text-slate-400 py-1.5">조회자 정보가 없습니다.</p>
+                            ) : (
+                              <div className="space-y-1 pt-1.5">
+                                {vl.map((v, j) => (
+                                  <div key={j} className="flex items-center justify-between text-xs">
+                                    <span className="text-slate-600 truncate">{v.viewer}</span>
+                                    <span className="shrink-0 text-slate-400 ml-2">{Number(v.views).toLocaleString()}회 · {fmtWhen(v.last_at)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    );})}
                   </div>
                 )}
               </React.Fragment>
