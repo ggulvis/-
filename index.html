@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.19.4";
+const APP_VERSION = "2026.07.19.5";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -201,6 +201,33 @@ function addYears(dateStr, n) {
   base.setFullYear(base.getFullYear() + n);
   const y = base.getFullYear(), m = String(base.getMonth() + 1).padStart(2, "0"), d = String(base.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+// 날짜에 n개월 더하기 (월말 넘침 보정)
+function addMonths(dateStr, n) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr;
+  const base = new Date(dateStr + "T00:00:00");
+  const day = base.getDate();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + n);
+  const dim = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  base.setDate(Math.min(day, dim));
+  const y = base.getFullYear(), m = String(base.getMonth() + 1).padStart(2, "0"), d = String(base.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+// 두 날짜 사이 개월수 (입주~만기 = 계약기간). 월말·윤년 보정
+function monthsBetween(a, b) {
+  if (!a || !b || !/^\d{4}-\d{2}-\d{2}/.test(a) || !/^\d{4}-\d{2}-\d{2}/.test(b)) return 0;
+  const s = new Date(a + "T00:00:00"), e = new Date(b + "T00:00:00");
+  let m = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+  if (m < 0) return 0;
+  if (addMonths(a, m) > b) m -= 1; // 입주+m개월이 만기를 넘으면 1 줄임 (문자열 비교 안전)
+  return m;
+}
+// 묵시적갱신: 만기일을 '원래 계약기간(입주~만기)'만큼 뒤로 연장. 계산 불가 시 null
+function impliedRenewEnd(start, end) {
+  const months = monthsBetween(start, end);
+  if (months <= 0) return null;
+  return addMonths(end, months);
 }
 
 /* 지역 분류 (건물 주소 기반) */
@@ -591,6 +618,23 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
             <button type="button" className="flex-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md py-1.5" onClick={() => set("end_date", addYears(f.end_date, 1))}>+1년</button>
             <button type="button" className="flex-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md py-1.5" onClick={() => set("end_date", addYears(f.end_date, 2))}>+2년</button>
           </div>
+          <button type="button" className="w-full mt-1.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md py-2"
+            onClick={() => {
+              const ne = impliedRenewEnd(f.start_date, f.end_date);
+              if (!ne) { alert("입주날짜와 만기일이 있어야 원래 계약기간만큼 연장할 수 있어요."); return; }
+              const oldStart = f.start_date, oldEnd = f.end_date, term = monthsBetween(oldStart, oldEnd);
+              // 갱신: 새 계약기간 = 기존 만기 ~ (기존 만기 + 원래 기간). 반복 갱신도 매번 원래 기간만큼 정확히 연장됨
+              set("start_date", oldEnd);
+              set("end_date", ne);
+              set("tags", (f.tags || []).includes("묵시적갱신") ? f.tags : [...(f.tags || []), "묵시적갱신"]);
+              const note = "🔁 묵시적갱신(" + term + "개월): 계약기간 " + oldStart + "~" + oldEnd + " → " + oldEnd + "~" + ne;
+              set("memo", (f.memo ? f.memo + "\n" : "") + note);
+            }}>
+            🔁 묵시적갱신 — 원래 계약기간만큼 연장
+          </button>
+          {impliedRenewEnd(f.start_date, f.end_date) && (
+            <p className="text-[11px] text-amber-600 mt-1 break-keep">누르면 계약기간이 <b>{f.end_date} ~ {impliedRenewEnd(f.start_date, f.end_date)}</b>로 갱신되고(입주일=기존 만기), '묵시적갱신' 태그·이력 메모가 추가됩니다. 원 입주일은 메모에 남습니다. (저장해야 확정)</p>
+          )}
         </Field>
         <Field label={(f.vacant ? "희망 " : "") + "보증금 (만원)"}><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
         <Field label={(f.vacant ? "희망 " : "") + "월세 (만원)"}><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
@@ -717,6 +761,7 @@ const LEASE_TAGS = [
   { v: "짐 미리 뺌", d: "짐 미리 뺌 (공실 정리)" },
   { v: "임차인 복비보너스", d: "임차인 복비 보너스" },
   { v: "임대인 복비보너스", d: "임대인 복비 보너스" },
+  { v: "묵시적갱신", d: "묵시적 갱신된 계약" },
 ];
 const BUILDING_OPTS = [
   { v: "주차불가", d: "주차 불가" },
