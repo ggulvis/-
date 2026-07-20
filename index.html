@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.19.5";
+const APP_VERSION = "2026.07.19.6";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -533,6 +533,7 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
     move_out: !!lease.move_out,
     vacant: !!lease.vacant,
     tags: Array.isArray(lease.tags) ? lease.tags : [],
+    term_months: lease.term_months ?? null, // 원래 계약기간(개월) — 묵시적갱신이 이 값만큼 연장
   });
   const isAdminUser = me && me.role === "admin";
   const [busy, setBusy] = useState(false);
@@ -565,6 +566,11 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
       vacant: f.vacant,
       tags: f.tags || [],
     };
+    // 원래 계약기간(개월): 아직 묵시적갱신 안 된 계약이면 입주~만기로 자동 산정, 갱신된 계약이면 저장값 유지
+    {
+      const renewed = (f.tags || []).includes("묵시적갱신");
+      payload.term_months = renewed ? (f.term_months ?? null) : (monthsBetween(f.start_date, f.end_date) || (f.term_months ?? null));
+    }
     // 계약완료 처리: 새로 체크하면 완료자·일시 기록, 해제하면 초기화
     // 관리자는 완료자 이름을 직접 지정/수정 가능
     if (f.contract_done) {
@@ -618,23 +624,33 @@ function LeaseModal({ lease, buildings, customFields, me, onClose, onSaved, onUp
             <button type="button" className="flex-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md py-1.5" onClick={() => set("end_date", addYears(f.end_date, 1))}>+1년</button>
             <button type="button" className="flex-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md py-1.5" onClick={() => set("end_date", addYears(f.end_date, 2))}>+2년</button>
           </div>
-          <button type="button" className="w-full mt-1.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md py-2"
-            onClick={() => {
-              const ne = impliedRenewEnd(f.start_date, f.end_date);
-              if (!ne) { alert("입주날짜와 만기일이 있어야 원래 계약기간만큼 연장할 수 있어요."); return; }
-              const oldStart = f.start_date, oldEnd = f.end_date, term = monthsBetween(oldStart, oldEnd);
-              // 갱신: 새 계약기간 = 기존 만기 ~ (기존 만기 + 원래 기간). 반복 갱신도 매번 원래 기간만큼 정확히 연장됨
-              set("start_date", oldEnd);
-              set("end_date", ne);
-              set("tags", (f.tags || []).includes("묵시적갱신") ? f.tags : [...(f.tags || []), "묵시적갱신"]);
-              const note = "🔁 묵시적갱신(" + term + "개월): 계약기간 " + oldStart + "~" + oldEnd + " → " + oldEnd + "~" + ne;
-              set("memo", (f.memo ? f.memo + "\n" : "") + note);
-            }}>
-            🔁 묵시적갱신 — 원래 계약기간만큼 연장
-          </button>
-          {impliedRenewEnd(f.start_date, f.end_date) && (
-            <p className="text-[11px] text-amber-600 mt-1 break-keep">누르면 계약기간이 <b>{f.end_date} ~ {impliedRenewEnd(f.start_date, f.end_date)}</b>로 갱신되고(입주일=기존 만기), '묵시적갱신' 태그·이력 메모가 추가됩니다. 원 입주일은 메모에 남습니다. (저장해야 확정)</p>
-          )}
+          {(() => {
+            // 연장 기간(개월): 저장된 원래 계약기간 우선, 없으면 입주~만기로 산정
+            const term = (f.term_months && f.term_months > 0) ? f.term_months : monthsBetween(f.start_date, f.end_date);
+            const ne = (term > 0 && f.end_date) ? addMonths(f.end_date, term) : null;
+            return (
+              <React.Fragment>
+                <button type="button" className="w-full mt-1.5 text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-md py-2"
+                  onClick={() => {
+                    const tm = (f.term_months && f.term_months > 0) ? f.term_months : monthsBetween(f.start_date, f.end_date);
+                    if (!tm || tm <= 0 || !f.end_date) { alert("입주날짜와 만기일이 있어야 원래 계약기간만큼 연장할 수 있어요."); return; }
+                    const oldEnd = f.end_date, newEnd = addMonths(oldEnd, tm);
+                    set("end_date", newEnd);            // 입주일은 그대로, 만기만 원래 기간만큼 연장
+                    set("term_months", tm);             // 원래 계약기간 고정 (다음 갱신도 이 값만큼)
+                    set("tags", (f.tags || []).includes("묵시적갱신") ? f.tags : [...(f.tags || []), "묵시적갱신"]);
+                    const note = "🔁 묵시적갱신(" + tm + "개월): 만기 " + oldEnd + " → " + newEnd;
+                    set("memo", (f.memo ? f.memo + "\n" : "") + note);
+                  }}>
+                  🔁 묵시적갱신 — 원래 계약기간만큼 연장
+                </button>
+                {ne && (
+                  <p className="text-[11px] text-amber-600 mt-1 break-keep">
+                    입주일은 그대로 두고 만기만 <b>{f.end_date} → {ne}</b>로 <b>{term}개월</b> 연장됩니다. '묵시적갱신' 태그·이력 메모 추가. (저장해야 확정)
+                  </p>
+                )}
+              </React.Fragment>
+            );
+          })()}
         </Field>
         <Field label={(f.vacant ? "희망 " : "") + "보증금 (만원)"}><input className={inputCls} value={f.deposit} onChange={(e) => set("deposit", e.target.value)} inputMode="numeric" /></Field>
         <Field label={(f.vacant ? "희망 " : "") + "월세 (만원)"}><input className={inputCls} value={f.rent} onChange={(e) => set("rent", e.target.value)} inputMode="numeric" /></Field>
