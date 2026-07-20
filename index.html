@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.20.1";
+const APP_VERSION = "2026.07.20.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3451,6 +3451,10 @@ function MainApp({ session, profile, onProfileChanged }) {
     return m;
   }, [buildings]);
   const buildingTagList = useMemo(() => Object.keys(buildingTagCounts).sort((a, b) => a.localeCompare(b, "ko")), [buildingTagCounts]);
+  // 선택된 건물태그가 더 이상 존재하지 않으면(태그 삭제·데이터 변경) 필터 자동 해제 — 칩 없이 "결과 없음"에 갇히는 것 방지
+  useEffect(() => {
+    if (buildingTag && !buildingTagList.includes(buildingTag)) setBuildingTag(null);
+  }, [buildingTag, buildingTagList]);
   const filteredBuildings = useMemo(() => {
     let list = buildings;
     if (region !== "all") {
@@ -3462,7 +3466,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     if (insFilter) list = list.filter((b) => buildingInsured[b.id]);
     if (bonusFilter) list = list.filter((b) => buildingBonus[b.id]);
     if (eventFilter) list = list.filter((b) => buildingEvent[b.id]);
-    if (buildingTag) list = list.filter((b) => Array.isArray(b.options) && b.options.includes(buildingTag));
+    if (buildingTag && buildingTagList.includes(buildingTag)) list = list.filter((b) => Array.isArray(b.options) && b.options.includes(buildingTag));
     if (q) {
       list = list.filter((b) => {
         if (b.name.toLowerCase().includes(q)) return true;
@@ -3483,7 +3487,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       if (!!ua !== !!ub) return ua ? -1 : 1;
       return a.name.localeCompare(b.name, "ko");
     });
-  }, [q, region, subArea, insFilter, bonusFilter, eventFilter, buildingTag, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured, buildingBonus, buildingEvent]);
+  }, [q, region, subArea, insFilter, bonusFilter, eventFilter, buildingTag, buildingTagList, buildings, leasesByBuilding, canEdit, buildingUrgency, buildingVacant, buildingInsured, buildingBonus, buildingEvent]);
 
   const urgentCount = useMemo(() => leases.filter((l) => { const d = dday(l.end_date); return d !== null && d <= 30; }).length, [leases]);
   const dupCount = useMemo(() => {
