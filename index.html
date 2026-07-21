@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.21.3";
+const APP_VERSION = "2026.07.21.4";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3099,6 +3099,16 @@ function BuildingEditTable({ building, rows, onSaved }) {
   const [busy, setBusy] = useState(null);
   const [msg, setMsg] = useState("");
   const tmp = useRef(0);
+  // 건물 상세설명(메모) 인라인 편집 — manager+ (buildings b_mod RLS)
+  const [memoEdit, setMemoEdit] = useState(null); // null=보기, 문자열=편집중
+  const [memoBusy, setMemoBusy] = useState(false);
+  const saveMemo = async () => {
+    setMemoBusy(true); setMsg("");
+    const { error } = await sb.from("buildings").update({ memo: (memoEdit || "").trim() || null }).eq("id", building.id);
+    setMemoBusy(false);
+    if (error) { setMsg("건물 메모 저장 실패: " + error.message); return; }
+    setMemoEdit(null); onSaved();
+  };
 
   const insOf = (l) => l.insurance ? "done" : l.insurance_pending ? "progress" : "";
   const curVal = (l, f) => {
@@ -3186,7 +3196,25 @@ function BuildingEditTable({ building, rows, onSaved }) {
         <div>
           <h3 className="font-bold text-slate-800">{building.name} <span className="text-sm text-slate-400 font-normal">{sorted.length}호실</span>{building.active === false && <span className="ml-1.5 text-[10px] bg-red-100 text-red-600 border border-red-200 rounded-full px-2 py-0.5 font-semibold align-middle">관리중단</span>}</h3>
           {building.address && <p className="text-xs text-slate-400">{building.address}</p>}
-          {building.memo && <p className="text-xs text-amber-700 break-keep">📌 {building.memo}</p>}
+          {memoEdit === null ? (
+            <div className="flex items-start gap-1.5 mt-0.5">
+              {building.memo
+                ? <p className="text-xs text-amber-700 break-keep">📌 {building.memo}</p>
+                : <p className="text-xs text-slate-300">📌 건물 상세설명 없음</p>}
+              <button type="button" className="text-[11px] text-blue-500 hover:text-blue-700 font-semibold shrink-0 whitespace-nowrap" onClick={() => setMemoEdit(building.memo || "")}>✏️ 수정</button>
+            </div>
+          ) : (
+            <div className="mt-1 mb-1" style={{ maxWidth: "560px" }}>
+              <textarea autoFocus rows={2}
+                className="w-full border border-amber-300 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-amber-400 focus:outline-none"
+                placeholder="예: 주차 불가 · 가격협의 가능 · 입금은 신협 계좌로"
+                value={memoEdit} onChange={(e) => setMemoEdit(e.target.value)} />
+              <div className="flex gap-1.5 mt-1">
+                <button type="button" className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded px-3 py-1 disabled:opacity-50" disabled={memoBusy} onClick={saveMemo}>{memoBusy ? "저장 중..." : "저장"}</button>
+                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded px-3 py-1" onClick={() => setMemoEdit(null)}>취소</button>
+              </div>
+            </div>
+          )}
         </div>
         <button className={btnPrimary} onClick={addRow}>+ 새 호실 추가</button>
       </div>
