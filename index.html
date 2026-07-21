@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.21.1";
+const APP_VERSION = "2026.07.21.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1211,13 +1211,32 @@ function DuplicateModal({ leases, buildings, onClose, onSaved }) {
 }
 
 /* ---------------- 매물 상세 팝업 (열람용) ---------------- */
-function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, staff, onClose, onEdit, onMarkDone, onCancelDone, onUpload }) {
+function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me, staff, asRecords, onReloadAS, onClose, onEdit, onMarkDone, onCancelDone, onUpload }) {
   // 조회수 기록 (매물 상세를 열 때 1회). 실패해도 무시 — 테이블/함수 미생성 시에도 무해
   useEffect(() => { try { sb.rpc("log_lease_view", { p_lease: lease.id }).then(() => {}, () => {}); } catch (e) {} }, [lease.id]);
   const mayCancel = lease.contract_done && (canEdit || (me && lease.contract_done_by === (me.full_name || me.email)));
   const b = buildings.find((x) => x.id === lease.building_id) || {};
   const ev = events.find((e) => e.id === lease.event_id);
   const d = ddayInfo(lease.end_date);
+  // AS·도배 이력 (관리인+): 이 매물에 연결된 as_records + 접수 폼
+  const myAS = (asRecords || []).filter((r) => r.lease_id === lease.id);
+  const asMaxSeq = (asRecords || []).reduce((m, r) => Math.max(m, Number(r.seq) || 0), 0);
+  const [asOpen, setAsOpen] = useState(false);
+  const [asForm, setAsForm] = useState({ work_detail: "", received_date: "", staff: "" });
+  const [asBusy, setAsBusy] = useState(false);
+  const submitAS = async () => {
+    if (!asForm.work_detail.trim() || asBusy) return;
+    setAsBusy(true);
+    const { error } = await sb.from("as_records").insert({
+      seq: asMaxSeq + 1, building: b.name || null, room_number: lease.room_number || null,
+      tenant_name: lease.tenant_name || null, phone: lease.tenant_phone || null, lease_id: lease.id,
+      received_date: asForm.received_date || null, work_detail: asForm.work_detail.trim(), staff: asForm.staff.trim() || null,
+    });
+    setAsBusy(false);
+    if (error) { alert("AS 접수 실패: " + error.message); return; }
+    setAsForm({ work_detail: "", received_date: "", staff: "" }); setAsOpen(false);
+    if (onReloadAS) onReloadAS();
+  };
   const Row = ({ k, v }) => (v === null || v === undefined || v === "") ? null : (
     <div className="flex justify-between gap-3 py-2 border-b border-slate-200/70 last:border-0 text-sm">
       <span className="text-slate-400 shrink-0">{k}</span>
@@ -1277,6 +1296,42 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
         {me && me.role === "admin" && staff && <Row k="담당실장 🔒" v={staff} />}
         <Row k="메모" v={lease.memo} />
       </div>
+      {canEdit && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <h4 className="text-sm font-bold text-slate-700">🔧 AS·도배 이력 <span className="text-slate-400 font-medium">{myAS.length}</span></h4>
+            <button className="text-xs font-bold text-blue-600" onClick={() => setAsOpen((v) => !v)}>{asOpen ? "취소" : "＋ AS 접수"}</button>
+          </div>
+          {asOpen && (
+            <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-2.5 mb-2 space-y-2">
+              <textarea className={inputCls} rows={2} placeholder="작업내용 (예: 화장실 문손잡이 교체)" value={asForm.work_detail} onChange={(e) => setAsForm((s) => ({ ...s, work_detail: e.target.value }))} />
+              <div className="flex gap-2">
+                <input type="date" className={inputCls} value={asForm.received_date} onChange={(e) => setAsForm((s) => ({ ...s, received_date: e.target.value }))} />
+                <input className={inputCls} placeholder="담당 (선택)" value={asForm.staff} onChange={(e) => setAsForm((s) => ({ ...s, staff: e.target.value }))} />
+              </div>
+              <button className={btnPrimary + " w-full"} disabled={asBusy || !asForm.work_detail.trim()} onClick={submitAS}>{asBusy ? "저장 중..." : "접수 등록"}</button>
+            </div>
+          )}
+          {myAS.length === 0 && !asOpen && <p className="text-xs text-slate-400">등록된 AS·도배 이력이 없습니다.</p>}
+          <div className="space-y-1.5">
+            {myAS.map((r) => (
+              <div key={r.id} className="bg-white border rounded-lg p-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={"text-[10px] font-bold rounded-full px-2 py-0.5 border shrink-0 " + (AS_DONE(r) ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200")}>{AS_DONE(r) ? "완료" : "미완료"}</span>
+                  <span className="text-sm text-slate-700 font-medium break-keep flex-1">{r.work_detail || "-"}</span>
+                  <span className="text-xs text-slate-400 shrink-0">{r.received_date || "-"}{r.handled_date ? " → " + r.handled_date : ""}</span>
+                </div>
+                {(r.staff || (r.cost && r.cost !== "-")) && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    {r.staff && <span className="mr-2">담당 {r.staff}</span>}
+                    {r.cost && r.cost !== "-" && <span>비용 {isNaN(Number(r.cost)) ? r.cost : Number(r.cost).toLocaleString() + "원"}</span>}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <button className="w-full mb-2 bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-lg py-2.5"
         onClick={() => onUpload(lease)}>📄 계약서 사진 업로드 (자동 인식)</button>
       <div className="flex gap-2 pb-2">
@@ -3198,6 +3253,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [comments, setComments] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [roulette, setRoulette] = useState([]); // 꽝 없는 룰렛 이벤트 슬롯
+  const [asRecords, setAsRecords] = useState([]); // AS·도배 이력 (관리인+; RLS로 그 외엔 빈 배열) — 매물 상세 표시용
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive
@@ -3240,7 +3296,7 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
-    const [b, l, f, e, r, cs, cc, rs] = await Promise.all([
+    const [b, l, f, e, r, cs, cc, rs, ar] = await Promise.all([
       sb.from("buildings").select("*"),
       fetchLeasesAll(),
       sb.from("custom_fields").select("*").order("sort_order"),
@@ -3249,6 +3305,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       sb.from("contract_submissions").select("*").order("created_at", { ascending: false }),
       sb.from("celebration_comments").select("*").order("created_at"),
       sb.from("roulette_slots").select("*").order("idx"), // 테이블 미생성이면 error → 빈 배열
+      sb.from("as_records").select("*").order("seq", { ascending: false }), // 관리인+ RLS; 그 외 빈 배열
     ]);
     inactiveBuildingIds = new Set((b.data || []).filter((x) => x.active === false).map((x) => x.id));
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
@@ -3265,6 +3322,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     setComments(cc.data || []);
     setSubmissions(cs.data || []);
     setRoulette(rs.data || []);
+    setAsRecords(ar.data || []);
     if (profile.role === "admin") {
       const { data: la } = await sb.from("lease_admin").select("lease_id, staff");
       const m = {};
@@ -3298,6 +3356,10 @@ function MainApp({ session, profile, onProfileChanged }) {
   const reloadComments = async () => {
     const { data } = await sb.from("celebration_comments").select("*").order("created_at");
     setComments(data || []);
+  };
+  const reloadAS = async () => {
+    const { data } = await sb.from("as_records").select("*").order("seq", { ascending: false });
+    setAsRecords(data || []);
   };
   const addComment = async (l, body) => {
     const text = (body || "").trim();
@@ -4002,6 +4064,7 @@ function MainApp({ session, profile, onProfileChanged }) {
       )}
       {modal && modal.type === "detail" && (
         <LeaseDetailModal lease={modal.lease} buildings={buildings} events={events} customFields={customFields} canEdit={canEdit} me={profile} staff={adminStaff[modal.lease.id]}
+          asRecords={asRecords} onReloadAS={reloadAS}
           onClose={() => setModal(null)} onMarkDone={markDone} onCancelDone={cancelDone}
           onEdit={(l) => setModal({ type: "lease", lease: l })}
           onUpload={(l) => setModal({ type: "upload", lease: l })} />
