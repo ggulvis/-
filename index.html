@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.20.2";
+const APP_VERSION = "2026.07.21.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2107,6 +2107,12 @@ const ARCHIVE_SPECS = {
   },
 };
 
+// AS·도배 완료 판별: 처리일(handled_date)에 실제 날짜/내용이 있으면 완료. '-'·'미정'·'예정' 등은 미완료로 간주.
+const AS_DONE = (r) => {
+  const h = String(r && r.handled_date != null ? r.handled_date : "").trim();
+  return h !== "" && h !== "-" && h !== "미정" && h !== "예정";
+};
+
 function ArchiveEditModal({ table, row, maxSeq, onClose, onSaved }) {
   const spec = ARCHIVE_SPECS[table];
   const isNew = !row.id;
@@ -2180,6 +2186,7 @@ function ArchiveView({ onBack }) {
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
   const [edit, setEdit] = useState(null); // { table, row }
+  const [asStatus, setAsStatus] = useState("all"); // AS·도배 상태 필터: all | open | done
 
   const load = async () => {
     const [b, t, a] = await Promise.all([
@@ -2207,6 +2214,9 @@ function ArchiveView({ onBack }) {
   const biF = (bi || []).filter((r) => hit(r.name, r.address, r.owner_name, r.owner_phone, r.telecom, r.email, r.note));
   const tiF = (ti || []).filter((r) => hit(r.building, r.tenant_name, r.room_number, r.phone, r.inquiry_type, r.inquiry_detail, r.as_detail, r.staff, r.note));
   const asF = (asr || []).filter((r) => hit(r.building, r.tenant_name, r.room_number, r.phone, r.work_detail, r.staff, r.note));
+  const asDoneCnt = asF.filter(AS_DONE).length;
+  const asOpenCnt = asF.length - asDoneCnt;
+  const asFS = asStatus === "done" ? asF.filter(AS_DONE) : asStatus === "open" ? asF.filter((r) => !AS_DONE(r)) : asF;
 
   const InfoRow = ({ label, value, tel }) => {
     if (!value) return null;
@@ -2301,10 +2311,22 @@ function ArchiveView({ onBack }) {
 
       {!loading && tab === "as" && (
         <div className="space-y-2">
-          {asF.length === 0 && <p className="text-sm text-slate-400 text-center py-8">결과가 없습니다.</p>}
-          {asF.map((r) => (
+          <div className="flex gap-2 items-center flex-wrap mb-1">
+            {[["all", "전체", asF.length], ["open", "미완료", asOpenCnt], ["done", "완료", asDoneCnt]].map(([k, lbl, c]) => (
+              <button key={k} onClick={() => setAsStatus(k)}
+                className={"px-3 py-1 rounded-full text-xs font-bold border inline-flex items-center gap-1 " +
+                  (asStatus === k
+                    ? (k === "open" ? "bg-amber-500 text-white border-amber-500" : k === "done" ? "bg-emerald-600 text-white border-emerald-600" : "bg-slate-700 text-white border-slate-700")
+                    : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50")}>
+                {lbl}<span className={asStatus === k ? "text-white/70" : "text-slate-400"}>{c}</span>
+              </button>
+            ))}
+          </div>
+          {asFS.length === 0 && <p className="text-sm text-slate-400 text-center py-8">결과가 없습니다.</p>}
+          {asFS.map((r) => (
             <div key={r.id} className="bg-white rounded-2xl border p-3.5">
               <div className="flex items-center gap-2 flex-wrap">
+                <span className={"text-[10px] font-bold rounded-full px-2 py-0.5 border shrink-0 " + (AS_DONE(r) ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200")}>{AS_DONE(r) ? "완료" : "미완료"}</span>
                 <b className="text-slate-800 break-keep">{r.building} {r.room_number}</b>
                 {r.tenant_name && <span className="text-sm text-slate-500">{r.tenant_name}</span>}
                 {r.phone && (/[0-9]{4}/.test(r.phone)
