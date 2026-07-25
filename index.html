@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.21.4";
+const APP_VERSION = "2026.07.21.5";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3340,7 +3340,8 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [asRecords, setAsRecords] = useState([]); // AS·도배 이력 (관리인+; RLS로 그 외엔 빈 배열) — 매물 상세 표시용
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive
+  const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive | organize | manage
+  const [mgrMode, setMgrMode] = useState(null); // 관리인+ 로그인 직후 모드 선택: null=미선택(선택화면) | "normal" | "manage"
   const [region, setRegion] = useState("all");   // 지역 탭
   const [subArea, setSubArea] = useState("전체"); // 세부 동 탭
   const [insFilter, setInsFilter] = useState(false); // 보증보험 필터 (가입완료+가입중 매물 있는 건물만)
@@ -3773,6 +3774,41 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">불러오는 중...</div>;
 
+  // 관리인+ 로그인 직후 모드 선택 화면 (임대 홈 / 관리모드)
+  if (canManage && mgrMode === null) {
+    const pendCnt = submissions.filter((s) => s.status === "pending").length;
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 bg-slate-50">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-6">
+            <img src="/icon-192.png" alt="보담" className="w-14 h-14 rounded-2xl mx-auto mb-3 shadow" />
+            <h2 className="text-xl font-bold text-slate-800">어떤 모드로 시작할까요?</h2>
+            <p className="text-sm text-slate-400 mt-1 break-keep">{profile.full_name || profile.email}님 · 상단 메뉴에서 언제든 전환할 수 있어요</p>
+          </div>
+          <button onClick={() => { setMgrMode("normal"); setView({ name: "home" }); }}
+            className="w-full bg-white border-2 border-slate-200 hover:border-blue-400 active:bg-blue-50 rounded-2xl p-5 mb-3 text-left flex items-center gap-4 shadow-sm">
+            <span className="text-4xl shrink-0">🏠</span>
+            <span className="min-w-0">
+              <span className="block font-bold text-slate-800 text-lg">임대 홈</span>
+              <span className="block text-sm text-slate-500 break-keep">모든 회원과 동일한 매물 화면으로 시작</span>
+            </span>
+          </button>
+          <button onClick={() => { setMgrMode("manage"); setView({ name: "manage" }); }}
+            className="w-full bg-white border-2 border-emerald-300 hover:border-emerald-500 active:bg-emerald-50 rounded-2xl p-5 text-left flex items-center gap-4 shadow-sm">
+            <span className="text-4xl shrink-0">🛠️</span>
+            <span className="min-w-0">
+              <span className="block font-bold text-slate-800 text-lg">관리모드
+                <span className="ml-1.5 text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5 align-middle font-semibold">관리인 전용</span>
+                {pendCnt > 0 && <span className="ml-1.5 text-[10px] bg-red-500 text-white rounded-full px-2 py-0.5 align-middle font-bold">계약승인 대기 {pendCnt}</span>}
+              </span>
+              <span className="block text-sm text-slate-500 break-keep">계약관리 · 임대매물 정보 수정 바로가기</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const currentBuilding = view.name === "building" ? buildings.find((b) => b.id === view.buildingId) : null;
 
   return (
@@ -3819,6 +3855,10 @@ function MainApp({ session, profile, onProfileChanged }) {
             className="text-sm font-semibold px-3 py-1.5 rounded-lg text-amber-700 hover:bg-amber-50 inline-flex items-center gap-1 shrink-0" title="꿀방 홈으로 이동">
             🍯 <span className="hidden xs:inline sm:inline">꿀방</span> <span className="text-[10px] text-amber-400">↗</span>
           </a>
+          {canManage && (
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "manage" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50")}
+              onClick={() => setView({ name: "manage" })}>🛠️ <span className="hidden sm:inline">관리모드</span></button>
+          )}
           {canEdit && (
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "all" })}>전체보기</button>
@@ -3871,6 +3911,44 @@ function MainApp({ session, profile, onProfileChanged }) {
       </header>
 
       <main className="max-w-6xl mx-auto px-3 sm:px-6 pt-4">
+        {/* 관리모드 대시보드 (관리인+) */}
+        {view.name === "manage" && canManage && (() => {
+          const pendCnt = submissions.filter((s) => s.status === "pending").length;
+          const Card = ({ emoji, title, desc, badge, onClick, tone }) => (
+            <button onClick={onClick}
+              className={"bg-white border-2 rounded-2xl p-5 text-left flex items-center gap-4 shadow-sm active:scale-[0.99] " +
+                (tone === "green" ? "border-emerald-200 hover:border-emerald-500" : "border-slate-200 hover:border-blue-400")}>
+              <span className="text-4xl shrink-0">{emoji}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-bold text-slate-800 text-lg break-keep">{title}
+                  {badge > 0 && <span className="ml-1.5 text-[10px] bg-red-500 text-white rounded-full px-2 py-0.5 align-middle font-bold">{badge}</span>}
+                </span>
+                <span className="block text-sm text-slate-500 break-keep">{desc}</span>
+              </span>
+              <span className="text-slate-300 text-xl shrink-0">›</span>
+            </button>
+          );
+          return (
+            <div className="max-w-2xl mx-auto">
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
+                <h2 className="font-bold text-xl text-slate-800">🛠️ 관리모드</h2>
+                <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5 font-semibold">관리인 전용</span>
+                <div className="flex-1" />
+                <button className={btnGhost} onClick={() => setView({ name: "home" })}>🏠 임대 홈으로</button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Card emoji="📋" title="계약관리" tone="green" badge={pendCnt}
+                  desc="계약서 확인·승인 처리" onClick={() => setModal({ type: "subs" })} />
+                <Card emoji="✏️" title="임대매물 정보 수정" tone="green"
+                  desc="건물별 정리 표에서 바로 입력·수정 (PC)" onClick={() => setView({ name: "organize" })} />
+                <Card emoji="📚" title="자료실"
+                  desc="건물정보 · 문의이력 · AS·도배" onClick={() => setView({ name: "archive" })} />
+                <Card emoji="👥" title={isAdmin ? "관리자 패널" : "가입 승인"}
+                  desc={isAdmin ? "회원 관리 · 이용현황 · 매물 조회수" : "가입 대기 회원 승인"} onClick={() => setModal({ type: "admin" })} />
+              </div>
+            </div>
+          );
+        })()}
         {/* 홈 */}
         {view.name === "home" && (
           <div>
