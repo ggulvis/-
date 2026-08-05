@@ -58,7 +58,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.21.5";
+const APP_VERSION = "2026.07.25.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -80,20 +80,46 @@ async function getSWRegistration() {
   if (!("serviceWorker" in navigator)) return null;
   try { return await navigator.serviceWorker.register("/sw.js"); } catch (e) { return null; }
 }
+async function savePushSub(profile, sub) {
+  const j = sub.toJSON();
+  return await sb.from("push_subscriptions").upsert({
+    user_id: profile.user_id, endpoint: sub.endpoint,
+    p256dh: j.keys.p256dh, auth: j.keys.auth, user_name: profile.full_name || profile.email,
+  }, { onConflict: "endpoint" });
+}
 async function subscribePush(profile) {
   const reg = await getSWRegistration();
   if (!reg) throw new Error("서비스 워커 등록 실패");
   const perm = await Notification.requestPermission();
   if (perm !== "granted") throw new Error("알림 권한이 허용되지 않았어요.");
+  const newSub = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC) });
   let sub = await reg.pushManager.getSubscription();
-  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC) });
-  const j = sub.toJSON();
-  const { error } = await sb.from("push_subscriptions").upsert({
-    user_id: profile.user_id, endpoint: sub.endpoint,
-    p256dh: j.keys.p256dh, auth: j.keys.auth, user_name: profile.full_name || profile.email,
-  }, { onConflict: "endpoint" });
-  if (error) throw error;
+  if (!sub) sub = await newSub();
+  let { error } = await savePushSub(profile, sub);
+  if (error) {
+    // 이 기기가 예전에 '다른 계정'으로 등록돼 있으면 endpoint 충돌 → RLS가 막음.
+    // 기존 구독을 해지하고 새 endpoint를 발급받아 내 계정으로 다시 등록 (자가복구)
+    try { await sub.unsubscribe(); } catch (e) {}
+    sub = await newSub();
+    const retry = await savePushSub(profile, sub);
+    if (retry.error) throw retry.error;
+  }
   return true;
+}
+// 브라우저엔 구독이 있는데 DB(내 계정)엔 행이 없는 상태를 자동 복구.
+// 계정을 바꿔 로그인한 기기가 "알림 켜짐"으로 보이면서 실제론 안 오던 문제 방지.
+async function ensurePushRow(profile) {
+  try {
+    if (!profile || !profile.user_id) return false;
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg && (await reg.pushManager.getSubscription());
+    if (!sub || Notification.permission !== "granted") return false;
+    const { data } = await sb.from("push_subscriptions").select("endpoint")
+      .eq("user_id", profile.user_id).eq("endpoint", sub.endpoint).maybeSingle();
+    if (data) return true;
+    await subscribePush(profile);
+    return true;
+  } catch (e) { return false; }
 }
 async function unsubscribePush(profile) {
   const reg = await getSWRegistration();
@@ -3720,7 +3746,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     (async () => {
       const subbed = await isPushSubscribed();
       setPushOn(subbed);
-      if (subbed) return;
+      if (subbed) { await ensurePushRow(profile); return; } // 계정 전환 기기 자가복구
       if (Notification.permission === "granted") {
         try { await subscribePush(profile); setPushOn(true); return; } catch (e) {}
       }
