@@ -61,7 +61,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.05.2";
+const APP_VERSION = "2026.08.05.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3408,7 +3408,8 @@ function MainApp({ session, profile, onProfileChanged }) {
   const notifBaseline = useRef(null); // 이 시각 이후의 축하만 알림 (localStorage 영속)
   const [pushOn, setPushOn] = useState(false); // 푸시 알림 구독 여부
   const [pushBusy, setPushBusy] = useState(false);
-  const [pushPrompt, setPushPrompt] = useState(false); // 로그인 후 알림 권유 배너
+  const [pushPrompt, setPushPrompt] = useState(false); // 로그인 후 알림 권유 배너 (회원당 1회)
+  const [promoIOS, setPromoIOS] = useState(false);     // 아이폰·아이패드 사파리 탭: 켜기 버튼 대신 홈 화면 추가 안내
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -3752,21 +3753,35 @@ function MainApp({ session, profile, onProfileChanged }) {
     });
   }, [reactions, comments, leases, buildings]);
 
-  // 푸시 알림: SW 등록 + 구독 상태 확인. 이미 허용됐으면 조용히 재구독, 아직 안 물었으면 권유 배너 1회
+  /* 알림 권유 배너는 회원당 딱 1번만.
+     본 시점을 user_roles.push_promo_at에 기록해 두 번 다시 안 뜨게 한다(기기를 바꿔도 동일).
+     "나중에"를 눌렀든 그냥 무시했든 상관없이, 화면에 띄우는 순간 기록한다. */
+  const markPushPromoSeen = async () => {
+    try { await sb.from("user_roles").update({ push_promo_at: new Date().toISOString() }).eq("user_id", profile.user_id); } catch (e) {}
+  };
+
+  // 푸시 알림: SW 등록 + 구독 상태 확인. 이미 허용됐으면 조용히 재구독, 안 켠 회원에겐 권유 배너 1회
   useEffect(() => {
-    if (!pushSupported()) return;
+    const promoSeen = !!profile.push_promo_at; // 배너만 1회 제한. 구독 확인·자가복구는 매번 그대로 돈다
+    if (!pushSupported()) {
+      // 아이폰·아이패드를 사파리 "탭"으로 쓰는 회원은 푸시 API 자체가 없다(홈 화면에 추가해야 생김).
+      // 그냥 넘기면 이 회원들은 알림 기능이 있는지도 모르므로, 홈 화면 추가 안내를 1번 띄운다.
+      if (!promoSeen && isIOS() && !isStandalone()) { setPromoIOS(true); setPushPrompt(true); markPushPromoSeen(); }
+      return;
+    }
     getSWRegistration();
     (async () => {
       const subbed = await isPushSubscribed();
       setPushOn(subbed);
-      if (subbed) { await ensurePushRow(profile); return; } // 계정 전환 기기 자가복구
+      if (subbed) { await ensurePushRow(profile); return; } // 계정 전환 기기 자가복구 (배너와 무관하게 항상)
       if (Notification.permission === "granted") {
         try { await subscribePush(profile); setPushOn(true); return; } catch (e) {}
       }
-      let dismissed = false;
-      try { dismissed = localStorage.getItem("bodam_push_dismissed") === "1"; } catch (e) {}
-      const iosBlocked = isIOS() && !isStandalone(); // 아이폰은 홈 화면 추가 전엔 애초에 불가 → 권유 안 함
-      if (Notification.permission === "default" && !dismissed && !iosBlocked) setPushPrompt(true);
+      if (promoSeen) return;
+      if (Notification.permission === "denied") return; // 브라우저에서 차단해 둔 사람에겐 권유해도 소용없음
+      if (isIOS() && !isStandalone()) setPromoIOS(true);  // standalone이 아니면 켜기 버튼 대신 안내 문구로
+      setPushPrompt(true);
+      markPushPromoSeen();
     })();
   }, []);
   const togglePush = async () => {
@@ -3873,13 +3888,22 @@ function MainApp({ session, profile, onProfileChanged }) {
           <button className="bg-white text-blue-700 font-bold rounded-lg px-3 py-1 active:bg-blue-50 disabled:opacity-60" onClick={applyUpdate} disabled={updating}>{updating ? "적용 중..." : "지금 업데이트"}</button>
         </div>
       )}
-      {/* 축하 알림 권유 배너 (앱 꺼져 있어도 잠금화면 알림) */}
+      {/* 축하 알림 권유 배너 (앱 꺼져 있어도 잠금화면 알림) — 회원당 딱 1번만 노출 */}
       {pushPrompt && !pushOn && (
         <div className="bg-amber-500 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 flex-wrap">
-          <span className="font-medium">🔔 내 계약을 축하받으면 알림으로 알려드릴까요?</span>
-          <button className="bg-white text-amber-700 font-bold rounded-lg px-3 py-1 active:bg-amber-50 disabled:opacity-60" disabled={pushBusy}
-            onClick={async () => { setPushPrompt(false); await togglePush(); }}>{pushBusy ? "설정 중..." : "네, 받을게요"}</button>
-          <button className="text-white/90 underline text-xs" onClick={() => { setPushPrompt(false); try { localStorage.setItem("bodam_push_dismissed", "1"); } catch (e) {} }}>나중에</button>
+          {promoIOS ? (
+            <>
+              <span className="font-medium break-keep">🔔 내 계약을 축하받으면 알림으로 알려드려요 — 아이폰·아이패드는 공유 버튼 → '홈 화면에 추가' 후 그 아이콘으로 열면 켤 수 있어요</span>
+              <button className="bg-white text-amber-700 font-bold rounded-lg px-3 py-1 active:bg-amber-50" onClick={() => setPushPrompt(false)}>알겠어요</button>
+            </>
+          ) : (
+            <>
+              <span className="font-medium break-keep">🔔 내 계약을 축하받으면 알림으로 알려드릴까요?</span>
+              <button className="bg-white text-amber-700 font-bold rounded-lg px-3 py-1 active:bg-amber-50 disabled:opacity-60" disabled={pushBusy}
+                onClick={async () => { setPushPrompt(false); await togglePush(); }}>{pushBusy ? "설정 중..." : "네, 받을게요"}</button>
+              <button className="text-white/90 underline text-xs" onClick={() => setPushPrompt(false)}>나중에</button>
+            </>
+          )}
         </div>
       )}
       {/* 헤더 */}
