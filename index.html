@@ -61,9 +61,30 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.05.1";
+const APP_VERSION = "2026.08.05.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
+
+/* ---------------- 전량 조회 헬퍼 ----------------
+   PostgREST는 한 번의 select에 기본 1000행 상한이 있어, 그걸 넘는 테이블은 말없이 잘린다.
+   (2026-07-20 leases 1275건 중 275건이 5개월간 통째로 누락됐던 사고의 원인)
+   그래서 1000행을 넘을 수 있는 테이블은 반드시 이 헬퍼로 읽는다.
+   orderCols = 페이지 간 중복/누락이 없도록 행을 유일하게 정하는 정렬 키(보통 PK).
+   대상: leases(1275) · lease_admin(765·leases 따라 증가) · app_visits(누적 증가) */
+const fetchTableAll = async (table, cols = "*", orderCols = ["id"]) => {
+  const CHUNK = 1000;
+  let from = 0, all = [];
+  for (;;) {
+    let q = sb.from(table).select(cols);
+    orderCols.forEach((c) => { q = q.order(c); });
+    const { data, error } = await q.range(from, from + CHUNK - 1);
+    if (error) return { data: all, error };
+    all = all.concat(data || []);
+    if (!data || data.length < CHUNK) break;
+    from += CHUNK;
+  }
+  return { data: all };
+};
 
 /* ---------------- 푸시 알림 (앱이 꺼져 있어도 잠금화면 알림) ---------------- */
 const VAPID_PUBLIC = "BAH6PJJA0pHDquA3FmZumQ-chSkXz8XDyCtEZMUVnL_4o0flCebGe9BiWzs5qojsiGPSfyrPDnAwZtImgw6RQFA";
@@ -2518,7 +2539,7 @@ function AdminPanel({ profile, buildings, customFields, onClose, onDataChanged }
   const [visitsErr, setVisitsErr] = useState("");
   useEffect(() => {
     if (tab === "usage" && visits === null) {
-      sb.from("app_visits").select("*")
+      fetchTableAll("app_visits", "*", ["user_id", "visited_on"]) // 매일 누적 → 1000행 상한 대비
         .then(({ data, error }) => {
           if (error) setVisitsErr(error.message);
           setVisits(data || []);
@@ -3394,19 +3415,8 @@ function MainApp({ session, profile, onProfileChanged }) {
   const canApprove = ["editor", "manager", "admin"].includes(profile.role); // 가입 승인: 편집자 이상
   const isAdmin = profile.role === "admin";
 
-  // leases는 1천건 초과 → PostgREST 기본 상한(1000행)에 걸려 잘림. range로 전량 페이지네이션.
-  const fetchLeasesAll = async () => {
-    const CHUNK = 1000;
-    let from = 0, all = [];
-    for (;;) {
-      const { data, error } = await sb.from("leases").select("*").order("id").range(from, from + CHUNK - 1);
-      if (error) return { data: all, error };
-      all = all.concat(data || []);
-      if (!data || data.length < CHUNK) break;
-      from += CHUNK;
-    }
-    return { data: all };
-  };
+  // leases는 1천건 초과 → PostgREST 기본 상한(1000행)에 걸려 잘림. fetchTableAll로 전량 조회.
+  const fetchLeasesAll = () => fetchTableAll("leases", "*", ["id"]);
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
@@ -3438,7 +3448,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     setRoulette(rs.data || []);
     setAsRecords(ar.data || []);
     if (profile.role === "admin") {
-      const { data: la } = await sb.from("lease_admin").select("lease_id, staff");
+      const { data: la } = await fetchTableAll("lease_admin", "lease_id, staff", ["lease_id"]); // 765행·leases 따라 증가 → 1000행 상한 대비
       const m = {};
       (la || []).forEach((x) => { m[x.lease_id] = x.staff; });
       setAdminStaff(m);
