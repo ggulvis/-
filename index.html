@@ -22,6 +22,9 @@
 <style>
   html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; touch-action: manipulation; }
+  /* 전체화면 높이 — iOS 사파리에서 100vh는 주소창이 접힌 상태 기준이라 내용이 아래로 밀려 보인다.
+     100dvh(실제 보이는 높이)를 쓰고, 미지원 브라우저는 100vh로 폴백. */
+  .screen-h { min-height: 100vh; min-height: 100dvh; }
   .scrollbar-thin::-webkit-scrollbar { height: 6px; width: 6px; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
   @keyframes toastIn { from { opacity: 0; transform: translateY(-12px) scale(.97); } to { opacity: 1; transform: none; } }
@@ -58,7 +61,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.07.25.1";
+const APP_VERSION = "2026.08.05.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -399,7 +402,7 @@ function RoleBadge({ role }) {
 /* ---------------- 인증 화면들 ---------------- */
 function SetupScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="screen-h flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow p-8 max-w-md text-center">
         <div className="text-4xl mb-3">⚙️</div>
         <h1 className="text-xl font-bold mb-2">초기 설정이 필요합니다</h1>
@@ -421,7 +424,7 @@ function LoginScreen() {
     },
   });
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-b from-blue-50 to-slate-100">
+    <div className="screen-h flex items-center justify-center p-6 bg-gradient-to-b from-blue-50 to-slate-100">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm text-center">
         <div className="text-4xl mb-2">🏢</div>
         <h1 className="text-2xl font-bold text-slate-800 mb-1">보담 임대관리</h1>
@@ -475,7 +478,7 @@ function RegisterScreen({ session, onDone }) {
     if (error) setErr("등록 실패: " + error.message); else onDone();
   };
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="screen-h flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
         <h1 className="text-xl font-bold text-slate-800 mb-1">사용자 등록</h1>
         <p className="text-sm text-slate-500 mb-6">처음 방문하셨네요. 정보를 입력하면 관리자 승인 후 이용할 수 있습니다.</p>
@@ -511,7 +514,7 @@ function PendingScreen({ profile, onUpdated }) {
     if (onUpdated) onUpdated();
   };
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
+    <div className="screen-h flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm text-center">
         <div className="text-4xl mb-2">⏳</div>
         <h1 className="text-xl font-bold text-slate-800 mb-1">승인 대기 중</h1>
@@ -3798,13 +3801,13 @@ function MainApp({ session, profile, onProfileChanged }) {
     XLSX.writeFile(wb, `보담임대현황_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`);
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-slate-400">불러오는 중...</div>;
+  if (loading) return <div className="screen-h flex items-center justify-center text-slate-400">불러오는 중...</div>;
 
   // 관리인+ 로그인 직후 모드 선택 화면 (임대 홈 / 관리모드)
   if (canManage && mgrMode === null) {
     const pendCnt = submissions.filter((s) => s.status === "pending").length;
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 bg-slate-50">
+      <div className="screen-h flex items-center justify-center px-4 bg-slate-50">
         <div className="w-full max-w-md">
           <div className="text-center mb-6">
             <img src="/icon-192.png" alt="보담" className="w-14 h-14 rounded-2xl mx-auto mb-3 shadow" />
@@ -3911,6 +3914,8 @@ function MainApp({ session, profile, onProfileChanged }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
+            {/* 바깥 아무 곳이나 누르면 닫히도록 투명 백드롭 (터치 기기에선 onMouseLeave가 안 걸린다) */}
+            {menuOpen && <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden="true" />}
             {menuOpen && (
               <div className="absolute right-0 top-11 bg-white border rounded-xl shadow-lg w-56 py-1 z-50" onMouseLeave={() => setMenuOpen(false)}>
                 <div className="px-4 py-2 border-b">
@@ -4318,9 +4323,9 @@ function App() {
   }, [session && session.user.id]);
 
   if (!IS_CONFIGURED) return <SetupScreen />;
-  if (session === undefined) return <div className="min-h-screen flex items-center justify-center text-slate-400">확인 중...</div>;
+  if (session === undefined) return <div className="screen-h flex items-center justify-center text-slate-400">확인 중...</div>;
   if (!session) return <LoginScreen />;
-  if (profile === undefined) return <div className="min-h-screen flex items-center justify-center text-slate-400">프로필 확인 중...</div>;
+  if (profile === undefined) return <div className="screen-h flex items-center justify-center text-slate-400">프로필 확인 중...</div>;
   if (profile === null) return <RegisterScreen session={session} onDone={() => loadProfile(session.user.id)} />;
   if (profile.status !== "active") return <PendingScreen profile={profile} onUpdated={() => loadProfile(session.user.id)} />;
   return <MainApp session={session} profile={profile} onProfileChanged={() => loadProfile(session.user.id)} />;
