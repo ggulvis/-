@@ -61,7 +61,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.05.4";
+const APP_VERSION = "2026.08.14.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -922,6 +922,10 @@ function VacantTag() {
 function InsMark() {
   return <span title="보증보험" className="text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300 rounded px-1 py-px ml-1 align-middle">✓보증보험</span>;
 }
+/* 꿀방에서 가져온 사진이 있는 매물 배지. n=장수 */
+function PhotoMark({ n }) {
+  return <span title={"매물 사진 " + n + "장"} className="text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-300 rounded px-1 py-px ml-1 align-middle">📷{n}</span>;
+}
 /* 가입완료(insurance) 또는 가입중(insurance_pending)이면 true */
 const isInsured = (l) => !!l && (l.insurance === true || l.insurance_pending === true);
 /* 복비 보너스/덤이 붙은 매물이면 true (태그 기준: 복비·보너스·덤 포함) */
@@ -1019,7 +1023,8 @@ function TagPicker({ options, selected, onToggle, tone, allowCustom }) {
     </div>
   );
 }
-function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, onMarkDone, onCancelDone }) {
+function LeaseList({ leases, buildings, canEdit, me, showBuilding, photos, onRowClick, onMarkDone, onCancelDone }) {
+  const photoN = (l) => (photos || {})[l.id] || 0; // 꿀방 사진 장수 (0=없음)
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "-";
   const canCancel = (l) => canEdit || (me && l.contract_done_by === (me.full_name || me.email));
   if (leases.length === 0) return <p className="text-center text-slate-400 text-sm py-10">임대 정보가 없습니다.</p>;
@@ -1052,7 +1057,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                     onClick={() => onRowClick(l)}>
                   {showBuilding && <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{bName(l.building_id)}</td>}
                   <td className="px-3 py-2.5 align-top">
-                    <div className="whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}{isInsured(l) && <InsMark />}</div>
+                    <div className="whitespace-nowrap font-semibold text-slate-800">{l.move_out && <MoveOutTag />}{l.vacant && <VacantTag />}{l.event_id && <EventTag />}{fmtRoom(l.room_number)}{isInsured(l) && <InsMark />}{photoN(l) > 0 && <PhotoMark n={photoN(l)} />}</div>
                     {l.tags && l.tags.length > 0 && <div className="mt-0.5 max-w-[180px]"><TagChips items={l.tags} tone="lease" /></div>}
                   </td>
                   {canEdit && <td className="px-3 py-2.5 whitespace-nowrap">{l.tenant_name || "-"}</td>}
@@ -1104,6 +1109,7 @@ function LeaseList({ leases, buildings, canEdit, me, showBuilding, onRowClick, o
                   {showBuilding && <span className="text-slate-500 font-medium mr-1.5">{bName(l.building_id)}</span>}
                   {fmtRoom(l.room_number)}
                   {isInsured(l) && <InsMark />}
+                  {photoN(l) > 0 && <PhotoMark n={photoN(l)} />}
                   {canEdit && l.tenant_name && <span className="font-medium text-slate-600 ml-1.5">· {l.tenant_name}</span>}
                 </div>
                 <span className={"text-xs font-bold px-2 py-0.5 rounded-full shrink-0 " + d.cls}>{d.label}</span>
@@ -3462,6 +3468,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [roulette, setRoulette] = useState([]); // 꽝 없는 룰렛 이벤트 슬롯
   const [asRecords, setAsRecords] = useState([]); // AS·도배 이력 (관리인+; RLS로 그 외엔 빈 배열) — 매물 상세 표시용
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
+  const [photoCounts, setPhotoCounts] = useState({}); // lease_id → 꿀방 사진 장수 (목록 배지용)
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive | organize | manage
   const [mgrMode, setMgrMode] = useState(null); // 관리인+ 로그인 직후 모드 선택: null=미선택(선택화면) | "normal" | "manage"
@@ -3494,7 +3501,7 @@ function MainApp({ session, profile, onProfileChanged }) {
 
   const fetchAll = async () => {
     try { await sb.rpc("cleanup_contract_flags"); } catch (e) { /* 60일 지난 완료표시 정리 (실패해도 무시) */ }
-    const [b, l, f, e, r, cs, cc, rs, ar] = await Promise.all([
+    const [b, l, f, e, r, cs, cc, rs, ar, pi] = await Promise.all([
       sb.from("buildings").select("*"),
       fetchLeasesAll(),
       sb.from("custom_fields").select("*").order("sort_order"),
@@ -3504,6 +3511,9 @@ function MainApp({ session, profile, onProfileChanged }) {
       sb.from("celebration_comments").select("*").order("created_at"),
       sb.from("roulette_slots").select("*").order("idx"), // 테이블 미생성이면 error → 빈 배열
       sb.from("as_records").select("*").order("seq", { ascending: false }), // 관리인+ RLS; 그 외 빈 배열
+      // 목록 배지용 사진 장수만. urls까지 받으면 1분 폴링마다 수십 KB가 오간다(사진은 모달에서 따로 조회).
+      // 사진 있는 매물은 leases 수만큼 늘 수 있으므로 1000행 상한 대비.
+      fetchTableAll("lease_images", "lease_id,n", ["lease_id"]),
     ]);
     inactiveBuildingIds = new Set((b.data || []).filter((x) => x.active === false).map((x) => x.id));
     setBuildings((b.data || []).sort((x, y) => x.name.localeCompare(y.name, "ko")));
@@ -3521,6 +3531,9 @@ function MainApp({ session, profile, onProfileChanged }) {
     setSubmissions(cs.data || []);
     setRoulette(rs.data || []);
     setAsRecords(ar.data || []);
+    const pc = {};
+    (pi.data || []).forEach((x) => { if (x.n > 0) pc[x.lease_id] = x.n; });
+    setPhotoCounts(pc);
     if (profile.role === "admin") {
       const { data: la } = await fetchTableAll("lease_admin", "lease_id, staff", ["lease_id"]); // 765행·leases 따라 증가 → 1000행 상한 대비
       const m = {};
@@ -4211,6 +4224,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                               {l.vacant && <VacantTag />}
                               {l.event_id && <EventTag />}
                               <b className="text-slate-800">{l.room_number}</b>
+                              {(photoCounts[l.id] || 0) > 0 && <PhotoMark n={photoCounts[l.id]} />}
                               {l.contract_done && <span className="ml-1">🎉</span>}
                               {canEdit && l.tenant_name && <span className="ml-1.5">{l.tenant_name}</span>}
                               <span className="ml-1.5 text-slate-400">{fmtDate(l.end_date)}</span>
@@ -4317,7 +4331,7 @@ function MainApp({ session, profile, onProfileChanged }) {
             {currentBuilding.memo && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 break-keep">📌 {currentBuilding.memo}</p>
             )}
-            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} me={profile} showBuilding={false} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
+            <LeaseList leases={leasesByBuilding[currentBuilding.id] || []} buildings={buildings} canEdit={canEdit} me={profile} showBuilding={false} photos={photoCounts} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
           </div>
         )}
 
@@ -4339,7 +4353,7 @@ function MainApp({ session, profile, onProfileChanged }) {
                   (l.room_number || "").toLowerCase().includes(q) ||
                   (l.tenant_name || "").toLowerCase().includes(q);
               })}
-              buildings={buildings} canEdit={canEdit} me={profile} showBuilding={true} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
+              buildings={buildings} canEdit={canEdit} me={profile} showBuilding={true} photos={photoCounts} onRowClick={openLease} onMarkDone={markDone} onCancelDone={cancelDone} />
           </div>
         )}
 
