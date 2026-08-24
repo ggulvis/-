@@ -61,7 +61,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.14.1";
+const APP_VERSION = "2026.08.20.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3794,7 +3794,7 @@ function MainApp({ session, profile, onProfileChanged }) {
     return leases
       .filter((l) => l.contract_done && l.contract_done_at && new Date(l.contract_done_at).getTime() >= cutoff)
       .sort((a, b) => String(b.contract_done_at).localeCompare(String(a.contract_done_at)))
-      .slice(0, 2); // 최근 2건만 게시
+      .slice(0, 3); // 최근 3건만 게시
   }, [leases]);
 
   // 인앱 축하 알림: 내 계약(contract_done_by=내 이름)에 달린 남의 반응/댓글 중 새 것을 토스트로 표시
