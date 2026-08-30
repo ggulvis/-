@@ -72,7 +72,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.3";
+const APP_VERSION = "2026.08.31.4";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -4058,6 +4058,8 @@ function MainApp({ session, profile, onProfileChanged }) {
                   <p className="font-semibold text-slate-800 text-sm truncate">{profile.full_name}</p>
                   <RoleBadge role={profile.role} />
                   {lastSync && <p className="text-[11px] text-slate-400 mt-1">마지막 업데이트 {new Date(lastSync).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</p>}
+                  {/* 버전 표시 — "새 버전이 실제로 적용됐는지" 눈으로 확인할 수단이 없어 추가 */}
+                  <p className="text-[11px] text-slate-300 mt-0.5">버전 {APP_VERSION}</p>
                 </div>
                 <button className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50" onClick={() => { setMenuOpen(false); manualRefresh(); }}>🔄 새로고침</button>
                 {pushSupported() && (
