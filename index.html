@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.7";
+const APP_VERSION = "2026.08.31.8";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -107,6 +107,11 @@ const fetchTableAll = async (table, cols = "*", orderCols = ["id"]) => {
 const VAPID_PUBLIC = "BAH6PJJA0pHDquA3FmZumQ-chSkXz8XDyCtEZMUVnL_4o0flCebGe9BiWzs5qojsiGPSfyrPDnAwZtImgw6RQFA";
 /* 삼성 인터넷 감지 — 이 브라우저는 강제 다크를 페이지가 막을 수 없다(크롬은 정상) */
 const isSamsungBrowser = () => /SamsungBrowser/i.test(navigator.userAgent);
+/* 기기가 지금 다크모드인가. 삼성 인터넷이 화면을 뒤집는 건 감지할 수 없지만,
+   대다수는 다크모드를 자동(낮 라이트/밤 다크)으로 쓰므로 이걸로 갈음한다. */
+const prefersDark = () => {
+  try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch (e) { return false; }
+};
 /* 현재 주소를 크롬으로 여는 안드로이드 intent 링크. 크롬이 없으면 원래 주소로 폴백 */
 const chromeIntentUrl = () => {
   const u = location.href.replace(/^https?:\/\//, "");
@@ -3515,7 +3520,14 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushPrompt, setPushPrompt] = useState(false); // 로그인 후 알림 권유 배너 (회원당 1회)
   const [promoIOS, setPromoIOS] = useState(false);
-  const [hideSamsung, setHideSamsung] = useState(false); // 삼성 인터넷 안내 배너 닫기(이번 방문만)     // 아이폰·아이패드 사파리 탭: 켜기 버튼 대신 홈 화면 추가 안내
+  // 삼성 인터넷 안내 배너 — 한 번 닫으면 다시 띄우지 않는다
+  const [hideSamsung, setHideSamsung] = useState(() => {
+    try { return localStorage.getItem("bodam_hide_samsung") === "1"; } catch (e) { return false; }
+  });
+  const dismissSamsung = () => {
+    setHideSamsung(true);
+    try { localStorage.setItem("bodam_hide_samsung", "1"); } catch (e) {}
+  };     // 아이폰·아이패드 사파리 탭: 켜기 버튼 대신 홈 화면 추가 안내
 
   const canEdit = ["manager", "admin"].includes(profile.role);          // 매물 편집: 관리인 이상
   const canManage = ["manager", "admin"].includes(profile.role);        // 계약서 승인: 관리인 이상
@@ -4001,21 +4013,12 @@ function MainApp({ session, profile, onProfileChanged }) {
         </div>
       )}
       {/* 축하 알림 권유 배너 (앱 꺼져 있어도 잠금화면 알림) — 회원당 딱 1번만 노출 */}
-      {/* 삼성 인터넷 안내 — 이 브라우저에서만 화면이 어둡게 뒤집힌다 */}
-      {isSamsungBrowser() && !hideSamsung && (
-        <div className="bg-slate-800 text-white text-sm px-4 py-3">
-          <p className="font-medium break-keep mb-2">
-            ⚠️ 삼성 인터넷에서는 화면이 어둡게 보입니다. 크롬으로 열면 정상으로 보여요.
-          </p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <a href={chromeIntentUrl()} className="bg-white text-slate-800 font-bold rounded-lg px-3 py-1.5">
-              크롬으로 열기
-            </a>
-            <button className="text-white/80 underline text-xs" onClick={() => setHideSamsung(true)}>그냥 볼게요</button>
-            <span className="text-[11px] text-white/60 break-keep w-full">
-              계속 삼성 인터넷을 쓰시려면 ☰ → 설정 → 유용한 기능 → 다크 모드를 꺼주세요.
-            </span>
-          </div>
+      {/* 삼성 인터넷 + 기기가 다크모드일 때만. 낮에 라이트로 잘 쓰는 사람은 볼 일이 없다 */}
+      {isSamsungBrowser() && prefersDark() && !hideSamsung && (
+        <div className="bg-slate-700 text-white text-xs px-4 py-2 flex items-center justify-center gap-2 flex-wrap">
+          <span className="break-keep">화면이 어둡게 보이나요?</span>
+          <a href={chromeIntentUrl()} className="bg-white text-slate-800 font-bold rounded px-2 py-0.5">크롬으로 열기</a>
+          <button className="text-white/70 underline" onClick={dismissSamsung}>다시 안 보기</button>
         </div>
       )}
       {pushPrompt && !pushOn && (
