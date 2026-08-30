@@ -72,7 +72,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.2";
+const APP_VERSION = "2026.08.31.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -4025,8 +4025,10 @@ function MainApp({ session, profile, onProfileChanged }) {
             <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "all" })}>전체보기</button>
           )}
+          {/* 건물별 정리는 900px 미만에서 "PC에서 사용하세요" 안내만 뜨는 화면이라
+              폰에서는 버튼을 숨긴다(자리를 차지해 자료실이 화면 밖으로 밀려났었다) */}
           {canManage && (
-            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap " + (view.name === "organize" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap hidden min-[900px]:inline-block " + (view.name === "organize" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "organize" })}>건물별 정리</button>
           )}
           {canManage && (
