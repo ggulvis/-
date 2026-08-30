@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#2563eb" />
 <!-- 이 앱은 밝은 화면만 지원한다. 이 선언이 없으면 안드로이드 크롬·삼성 인터넷 등이
      페이지를 임의로 어둡게 뒤집어(강제 다크) 글자·배지 색이 뭉개진다. -->
-<meta name="color-scheme" content="light" />
+<meta name="color-scheme" content="only light" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -72,7 +72,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.4";
+const APP_VERSION = "2026.08.31.5";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
