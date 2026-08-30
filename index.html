@@ -6,9 +6,12 @@
 <title>보담 임대관리</title>
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#2563eb" />
-<!-- 이 앱은 밝은 화면만 지원한다. 이 선언이 없으면 안드로이드 크롬·삼성 인터넷 등이
-     페이지를 임의로 어둡게 뒤집어(강제 다크) 글자·배지 색이 뭉개진다. -->
-<meta name="color-scheme" content="only light" />
+<!-- ⚠️ 값이 'light'가 아니라 'light dark'인 것은 의도된 것이다.
+     안드로이드의 강제 다크(브라우저·시스템이 페이지 색을 임의로 뒤집는 기능)는
+     "밝은 화면만 쓴다(only light)"는 선언을 무시하고 뒤집어버린다. 반면
+     "이 사이트가 다크모드를 직접 처리한다"고 선언하면 손대지 않고 비켜간다.
+     그래서 처리한다고 선언해두고, 아래 CSS에서 다크일 때도 밝은 색을 그대로 쓴다. -->
+<meta name="color-scheme" content="light dark" />
 <link rel="icon" type="image/png" href="/icon-192.png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -23,14 +26,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 <style>
-  /* only light = 기기가 다크모드여도 브라우저가 색을 뒤집지 못하게 한다(입력창·기본 UI 포함) */
-  :root { color-scheme: only light; }
+  /* 강제 다크를 비켜가려고 "다크모드를 직접 처리한다"고 선언한다(위 meta 주석 참고).
+     실제로는 다크일 때도 밝은 색을 그대로 쓴다 = 언제나 밝은 화면. */
+  :root { color-scheme: light dark; }
   html, body { background-color: #f1f5f9; color: #0f172a; }
-  /* 기기가 다크모드여도 같은 색을 다시 못 박는다 — 브라우저가 색을 뒤집는 경우 대비 */
   @media (prefers-color-scheme: dark) {
-    :root { color-scheme: only light; }
     html, body { background-color: #f1f5f9 !important; color: #0f172a !important; }
+    /* 카드·모달 등 흰 바탕이 회색으로 뜨지 않게 못 박는다 */
+    .bg-white { background-color: #ffffff !important; }
   }
+  /* 입력창·드롭다운 같은 브라우저 기본 UI는 언제나 밝게 (root가 dark를 허용하므로 개별 고정) */
+  input, select, textarea, button, option { color-scheme: only light; }
   html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; touch-action: manipulation; }
   /* 전체화면 높이 — iOS 사파리에서 100vh는 주소창이 접힌 상태 기준이라 내용이 아래로 밀려 보인다.
@@ -72,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.5";
+const APP_VERSION = "2026.08.31.6";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
