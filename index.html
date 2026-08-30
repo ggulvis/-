@@ -25,6 +25,12 @@
 <style>
   /* only light = 기기가 다크모드여도 브라우저가 색을 뒤집지 못하게 한다(입력창·기본 UI 포함) */
   :root { color-scheme: only light; }
+  html, body { background-color: #f1f5f9; color: #0f172a; }
+  /* 기기가 다크모드여도 같은 색을 다시 못 박는다 — 브라우저가 색을 뒤집는 경우 대비 */
+  @media (prefers-color-scheme: dark) {
+    :root { color-scheme: only light; }
+    html, body { background-color: #f1f5f9 !important; color: #0f172a !important; }
+  }
   html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", sans-serif; touch-action: manipulation; }
   /* 전체화면 높이 — iOS 사파리에서 100vh는 주소창이 접힌 상태 기준이라 내용이 아래로 밀려 보인다.
@@ -66,7 +72,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.1";
+const APP_VERSION = "2026.08.31.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -4005,26 +4011,29 @@ function MainApp({ session, profile, onProfileChanged }) {
             <span className="hidden xs:inline sm:inline">보담 임대관리</span>
           </button>
           <div className="flex-1" />
+          {/* 좁은 화면에서 버튼이 눌려 글자가 세로로 쪼개지던 문제 → 줄바꿈 금지 + 넘치면 가로 스크롤 */}
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin min-w-0">
           <a href="https://www.ggulbang.com" target="_blank" rel="noopener noreferrer"
             className="text-sm font-semibold px-3 py-1.5 rounded-lg text-amber-700 hover:bg-amber-50 inline-flex items-center gap-1 shrink-0" title="꿀방 홈으로 이동">
             🍯 <span className="hidden xs:inline sm:inline">꿀방</span> <span className="text-[10px] text-amber-400">↗</span>
           </a>
           {canManage && (
-            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "manage" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50")}
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap " + (view.name === "manage" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50")}
               onClick={() => setView({ name: "manage" })}>🛠️ <span className="hidden sm:inline">관리모드</span></button>
           )}
           {canEdit && (
-            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap " + (view.name === "all" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "all" })}>전체보기</button>
           )}
           {canManage && (
-            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "organize" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap " + (view.name === "organize" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "organize" })}>건물별 정리</button>
           )}
           {canManage && (
-            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg " + (view.name === "archive" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
+            <button className={"text-sm font-semibold px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap " + (view.name === "archive" ? "bg-blue-600 text-white" : "text-blue-600 hover:bg-blue-50")}
               onClick={() => setView({ name: "archive" })}>자료실</button>
           )}
+          </div>
           {/* 새로고침 */}
           <button onClick={manualRefresh} title="새로고침" aria-label="새로고침"
             className="w-9 h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
