@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.08.31.8";
+const APP_VERSION = "2026.09.11.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2323,6 +2323,15 @@ function RouletteEventCard({ slots, leases, me, onChanged, onOpenLease, eventId 
 
 /* ---------------- 자료실 (관리인 전용) ---------------- */
 const ARCHIVE_SPECS = {
+  nt: {
+    tableName: "notices", title: "공지",
+    fields: [
+      { k: "title", label: "제목", req: true, full: true },
+      { k: "body", label: "내용", type: "textarea", full: true },
+      { k: "phone", label: "연락처" },
+      { k: "pinned", label: "맨 위 고정", type: "bool" },
+    ],
+  },
   bi: {
     tableName: "building_info", title: "건물정보",
     fields: [
@@ -2449,7 +2458,8 @@ function ArchiveEditModal({ table, row, maxSeq, onClose, onSaved }) {
 }
 
 function ArchiveView({ onBack }) {
-  const [tab, setTab] = useState("bi"); // bi=건물정보 | ti=문의이력 | as=AS도배
+  const [tab, setTab] = useState("nt"); // nt=공지 | bi=건물정보 | ti=문의이력 | as=AS도배
+  const [nt, setNt] = useState(null);
   const [bi, setBi] = useState(null);
   const [ti, setTi] = useState(null);
   const [asr, setAsr] = useState(null);
@@ -2459,14 +2469,16 @@ function ArchiveView({ onBack }) {
   const [asStatus, setAsStatus] = useState("all"); // AS·도배 상태 필터: all | open | done
 
   const load = async () => {
-    const [b, t, a] = await Promise.all([
+    const [b, t, a, n] = await Promise.all([
       sb.from("building_info").select("*").order("seq"),
       sb.from("tenant_inquiries").select("*").order("seq", { ascending: false }),
       sb.from("as_records").select("*").order("seq", { ascending: false }),
+      // 고정 공지가 먼저, 그다음 최신순
+      sb.from("notices").select("*").order("pinned", { ascending: false }).order("created_at", { ascending: false }),
     ]);
-    const e = b.error || t.error || a.error;
+    const e = b.error || t.error || a.error || n.error;
     setErr(e ? e.message : "");
-    setBi(b.data || []); setTi(t.data || []); setAsr(a.data || []);
+    setBi(b.data || []); setTi(t.data || []); setAsr(a.data || []); setNt(n.data || []);
   };
   useEffect(() => { load(); }, []);
 
@@ -2480,7 +2492,8 @@ function ArchiveView({ onBack }) {
     </button>
   );
 
-  const loading = bi === null || ti === null || asr === null;
+  const loading = bi === null || ti === null || asr === null || nt === null;
+  const ntF = (nt || []).filter((r) => hit(r.title, r.body, r.phone));
   const biF = (bi || []).filter((r) => hit(r.name, r.address, r.owner_name, r.owner_phone, r.telecom, r.email, r.note));
   const tiF = (ti || []).filter((r) => hit(r.building, r.tenant_name, r.room_number, r.phone, r.inquiry_type, r.inquiry_detail, r.as_detail, r.staff, r.note));
   const asF = (asr || []).filter((r) => hit(r.building, r.tenant_name, r.room_number, r.phone, r.work_detail, r.staff, r.note));
@@ -2508,6 +2521,7 @@ function ArchiveView({ onBack }) {
         <input className={inputCls + " sm:max-w-xs"} placeholder="건물 · 이름 · 내용 검색" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-thin pb-1 items-center">
+        {tabBtn("nt", "📢 공지", nt === null ? null : ntF.length)}
         {tabBtn("bi", "🏢 건물정보", bi === null ? null : biF.length)}
         {tabBtn("ti", "💬 문의이력", ti === null ? null : tiF.length)}
         {tabBtn("as", "🔧 AS·도배", asr === null ? null : asF.length)}
@@ -2520,6 +2534,25 @@ function ArchiveView({ onBack }) {
       </div>
       {err && <p className="text-sm text-red-600 mb-3">불러오기 실패: {err}</p>}
       {loading && !err && <p className="text-sm text-slate-400 text-center py-10">불러오는 중...</p>}
+
+      {!loading && tab === "nt" && (
+        <div className="space-y-3">
+          {ntF.length === 0 && <p className="text-sm text-slate-400 text-center py-8">공지가 없습니다.</p>}
+          {ntF.map((r) => (
+            <div key={r.id} className={"bg-white rounded-2xl border shadow-sm p-4 " + (r.pinned ? "border-amber-300 bg-amber-50/40" : "")}>
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <h3 className="font-bold text-slate-800 break-keep leading-snug">
+                  {r.pinned && <span className="text-amber-500 mr-1">📌</span>}{r.title}
+                </h3>
+                <button className="text-xs font-bold text-blue-600 shrink-0" onClick={() => setEdit({ table: "nt", row: r })}>수정</button>
+              </div>
+              {r.body && <p className="text-sm text-slate-600 break-keep whitespace-pre-wrap">{r.body}</p>}
+              {r.phone && <p className="text-sm mt-1.5"><span className="text-slate-400 mr-1.5">연락처</span>
+                <a className="text-blue-600 font-medium" href={telHref(r.phone)}>{r.phone}</a></p>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {!loading && tab === "bi" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
