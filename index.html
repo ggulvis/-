@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.13.2";
+const APP_VERSION = "2026.09.13.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1875,15 +1875,21 @@ const monthBill = (l) => ((Number(l.monthly_rent) || 0) + (Number(l.management_f
 const won = (n) => (Number(n) || 0).toLocaleString("ko-KR") + "원";
 const manwon = (n) => Math.round((Number(n) || 0) / 10000).toLocaleString("ko-KR") + "만원";
 
-/** 정산 시작월부터 오늘까지 «납부일이 이미 지난» 달 수 */
-function billedMonths(settleFrom, dueDay, today) {
+/** 정산 시작월부터 «납부일이 이미 지난» 달 수.
+    `until` 이 있으면 그날까지만 센다 — **중도퇴실 세대는 퇴실일 뒤로 청구하면 안 된다.** */
+function billedMonths(settleFrom, dueDay, today, until) {
   if (!settleFrom) return 0;
   const s = new Date(settleFrom + "T00:00:00");
   if (isNaN(s.getTime())) return 0;
+  let end = today;
+  if (until) {
+    const u = new Date(until + "T00:00:00");
+    if (!isNaN(u.getTime()) && u < end) end = u;
+  }
   let y = s.getFullYear(), m = s.getMonth(), n = 0;
   for (let i = 0; i < 600; i++) {
     const last = new Date(y, m + 1, 0).getDate();      // 그 달의 말일 (31일 납부일 보정)
-    if (new Date(y, m, Math.min(dueDay || 1, last)) > today) break;
+    if (new Date(y, m, Math.min(dueDay || 1, last)) > end) break;
     n++; m++; if (m > 11) { m = 0; y++; }
   }
   return n;
@@ -1893,13 +1899,14 @@ function arrearsOf(lease, bill, sum, today) {
   const monthly = monthBill(lease);
   const settle = (bill && bill.settle_from) || null;
   const dueDay = (bill && bill.due_day) || (lease.start_date ? Number(String(lease.start_date).slice(8, 10)) : 1);
-  const months = billedMonths(settle, dueDay, today);
+  // ⚠️ 중도퇴실(move_out)은 **아직 사는 중**이라 청구 대상이다. 다만 퇴실일 뒤로는 안 센다.
+  const months = billedMonths(settle, dueDay, today, lease.move_out ? lease.end_date : null);
   const opening = Number((bill && bill.opening_balance) || 0);
   const due = months * monthly + opening;
   const paid = Number((sum && sum.paid) || 0);
   const owed = due - paid;
   return { monthly, dueDay, months, opening, due, paid, owed, started: !!settle,
-           lastPaid: (sum && sum.last_paid) || null,
+           lastPaid: (sum && sum.last_paid) || null, leaving: !!lease.move_out,
            owedMonths: monthly > 0 ? Math.floor(owed / monthly) : 0 };
 }
 
@@ -1937,7 +1944,7 @@ function PaymentImportModal({ leases, buildings, onClose, onSaved }) {
   const year = new Date().getFullYear();
   const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "";
   const targets = useMemo(() => leases
-    .filter((l) => !l.vacant && !l.move_out)
+    .filter((l) => !l.vacant)
     .map((l) => ({ id: l.id, label: bName(l.building_id) + " " + l.room_number + (l.tenant_name ? " · " + l.tenant_name : ""),
                    name: (l.tenant_name || "").replace(/\s/g, "") }))
     .sort((a, b) => a.label.localeCompare(b.label, "ko")), [leases, buildings]);
@@ -2304,8 +2311,9 @@ function ArrearsView({ leases, buildings, me, onBack }) {
 
   const bName = (id) => (buildings.find((x) => x.id === id) || {}).name || "";
   // 청구 대상 = 점유중 + 월 청구액 > 0 (전세라 관리비만 있는 집도 대상)
+  // 대상 = **공실이 아닌** 세대 + 월 청구액 > 0. 중도퇴실은 퇴실 전까지 내야 하므로 포함한다.
   const rows = useMemo(() => leases
-    .filter((l) => !l.vacant && !l.move_out && monthBill(l) > 0)
+    .filter((l) => !l.vacant && monthBill(l) > 0)
     .map((l) => ({ l, b: bName(l.building_id), a: arrearsOf(l, bills[l.id], sums[l.id], today) }))
     .filter((r) => {
       if (only === "owed" && !(r.a.started && r.a.owed > 0)) return false;
@@ -2318,7 +2326,7 @@ function ArrearsView({ leases, buildings, me, onBack }) {
     })
     .sort((x, y) => y.a.owed - x.a.owed), [leases, buildings, bills, sums, only, q]);
 
-  const all = leases.filter((l) => !l.vacant && !l.move_out && monthBill(l) > 0);
+  const all = leases.filter((l) => !l.vacant && monthBill(l) > 0);
   const notSet = all.filter((l) => !bills[l.id]).length;
   const totalOwed = all.reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
   const owedCnt = all.filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
@@ -2397,7 +2405,8 @@ function ArrearsView({ leases, buildings, me, onBack }) {
                         onChange={(e) => { const n = new Set(sel); e.target.checked ? n.add(l.id) : n.delete(l.id); setSel(n); }} />
                     </td>
                     <td className="py-1.5 px-2 whitespace-nowrap">{b} <b>{l.room_number}</b></td>
-                    <td className="px-2 whitespace-nowrap">{l.tenant_name || <span className="text-slate-300">·</span>}</td>
+                    <td className="px-2 whitespace-nowrap">{l.tenant_name || <span className="text-slate-300">·</span>}
+                      {a.leaving && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-bold">퇴실예정</span>}</td>
                     <td className="px-2 text-right text-slate-500">{manwon(a.monthly)}</td>
                     <td className={"px-2 text-right font-bold " + (a.owed > 0 ? "text-red-600" : "text-slate-300")}>
                       {a.started ? won(a.owed) : <span className="text-slate-300">미개시</span>}</td>
