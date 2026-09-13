@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.13.1";
+const APP_VERSION = "2026.09.13.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2032,6 +2032,129 @@ function PaymentImportModal({ leases, buildings, onClose, onSaved }) {
   );
 }
 
+/* ---------------- 미납 독촉 문자 (본인 휴대폰 발송) ----------------
+   업체(알리고 등) 없이 **관리인 본인 폰의 문자 앱**을 열어 보낸다. 비용 0원·준비 0.
+   ⚠️ **sms: 문법이 기기마다 다르다** — iOS 는 `sms:번호&body=`, 안드로이드는 `sms:번호?body=`.
+      한쪽 문법으로 통일하면 다른 쪽에서 **본문이 통째로 비어서 열린다**(빈 문자를 보내게 된다).
+   ⚠️ 문자 앱으로 넘어가면 앱은 **보냈는지 알 수 없다.** 그래서 추측하지 않고
+      돌아온 사람에게 «보내셨어요?»를 눌러 달라고 해서 그때만 기록한다. */
+const isIOSDevice = () =>
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS 13+ 는 Mac 으로 위장한다
+function smsHref(phone, body) {
+  const p = String(phone || "").replace(/[^0-9]/g, "");
+  if (!p) return "";
+  if (!body) return "sms:" + p;
+  return "sms:" + p + (isIOSDevice() ? "&" : "?") + "body=" + encodeURIComponent(body);
+}
+
+const SMS_TOKENS = ["이름", "건물", "호수", "미납액", "개월", "월청구", "계좌", "문의처"];
+function fillTemplate(tpl, ctx) {
+  return SMS_TOKENS.reduce((s, k) => s.split("{" + k + "}").join(ctx[k] == null ? "" : String(ctx[k])), tpl || "");
+}
+
+/* 대상을 한 명씩 넘기며 문자 앱을 연다 — 본인 폰 방식은 «한 번에 한 명»이 한계라
+   그 제약을 줄 세워서 흐름으로 만든다. */
+function SmsComposeModal({ queue, settings, accounts, me, onClose, onDone }) {
+  const [idx, setIdx] = useState(0);
+  const [body, setBody] = useState("");
+  const [sent, setSent] = useState(0);
+  const [tplOpen, setTplOpen] = useState(false);
+  const [tpl, setTpl] = useState(settings.sms_template || "");
+  const [contact, setContact] = useState(settings.sms_contact || "");
+  const [acct, setActt] = useState(settings.sms_account || "");
+  const [busy, setBusy] = useState(false);
+  const cur = queue[idx];
+
+  const ctxOf = (row) => ({
+    이름: row.l.tenant_name || "",
+    건물: row.b,
+    호수: row.l.room_number,
+    미납액: Math.round(row.a.owed).toLocaleString("ko-KR"),
+    개월: row.a.owedMonths,
+    월청구: Math.round(row.a.monthly).toLocaleString("ko-KR"),
+    // 건물별 계좌가 자료실(building_info)에 있으면 그걸, 없으면 기본 계좌를 쓴다
+    계좌: accounts[row.b] || acct || "",
+    문의처: contact || "",
+  });
+  useEffect(() => { if (cur) setBody(fillTemplate(tpl, ctxOf(cur))); }, [idx, tpl, contact, acct]);
+
+  const next = () => { if (idx + 1 < queue.length) setIdx(idx + 1); else onDone(sent); };
+  const record = async () => {
+    setBusy(true);
+    await sb.from("collection_log").insert({
+      lease_id: cur.l.id, by_name: me.full_name || me.email, action: "문자", result: "발송",
+      note: body.slice(0, 300),
+    });
+    setBusy(false); setSent(sent + 1);
+    if (idx + 1 < queue.length) setIdx(idx + 1); else onDone(sent + 1);
+  };
+  const saveTpl = async () => {
+    setBusy(true);
+    await sb.from("app_settings").upsert([
+      { key: "sms_template", value: tpl, updated_at: new Date().toISOString() },
+      { key: "sms_contact", value: contact, updated_at: new Date().toISOString() },
+      { key: "sms_account", value: acct, updated_at: new Date().toISOString() },
+    ], { onConflict: "key" });
+    setBusy(false); setTplOpen(false);
+  };
+
+  if (!cur) return null;
+  const phone = (cur.l.tenant_phone || "").replace(/[^0-9]/g, "");
+  return (
+    <Modal title={`💬 독촉 문자 — ${idx + 1} / ${queue.length}`} onClose={onClose}>
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 mb-3">
+        <p className="font-bold text-slate-800">{cur.b} {cur.l.room_number} · {cur.l.tenant_name || "(세입자 미상)"}</p>
+        <p className="text-sm text-slate-500">{cur.l.tenant_phone || "연락처 없음"}</p>
+        <p className="text-sm mt-1">미납 <b className="text-red-600">{won(cur.a.owed)}</b>
+          {cur.a.owedMonths > 0 && <span className="text-red-500"> · {cur.a.owedMonths}개월</span>}</p>
+      </div>
+
+      <Field label="보낼 내용 (여기서 고쳐도 됩니다)">
+        <textarea className={inputCls + " min-h-[120px]"} value={body} onChange={(e) => setBody(e.target.value)} />
+      </Field>
+      <p className="text-xs text-slate-400 -mt-2 mb-3">{body.length}자 · 한글 45자를 넘으면 장문(LMS)으로 나갑니다.</p>
+
+      {phone ? (
+        <a className={btnPrimary + " w-full block text-center mb-2"} href={smsHref(phone, body)}>
+          📱 문자 앱에서 열기
+        </a>
+      ) : (
+        <p className="text-sm text-red-600 mb-2">연락처가 없어 보낼 수 없습니다.</p>
+      )}
+      <p className="text-xs text-slate-400 mb-3 break-keep">
+        문자 앱이 열리면 <b>보내기</b>를 누르시고, 돌아와서 아래 버튼을 눌러주세요.
+        앱은 실제로 보냈는지 알 수 없어서 <b>눌러주신 것만 기록</b>합니다.
+      </p>
+
+      <div className="flex gap-2">
+        <button className={btnPrimary + " flex-1"} disabled={busy || !phone} onClick={record}>
+          ✅ 보냈어요 {idx + 1 < queue.length ? "· 다음" : "· 완료"}
+        </button>
+        <button className={btnGhost} onClick={next}>건너뛰기</button>
+      </div>
+
+      <button className="text-xs text-slate-400 underline mt-4" onClick={() => setTplOpen(!tplOpen)}>
+        {tplOpen ? "문구 설정 닫기" : "⚙️ 문구 설정"}
+      </button>
+      {tplOpen && (
+        <div className="mt-2 border-t pt-3">
+          <Field label="문구 템플릿">
+            <textarea className={inputCls + " min-h-[90px] text-sm"} value={tpl} onChange={(e) => setTpl(e.target.value)} />
+          </Field>
+          <p className="text-xs text-slate-400 -mt-2 mb-2 break-keep">
+            쓸 수 있는 항목: {SMS_TOKENS.map((t) => "{" + t + "}").join(" · ")}<br />
+            <b>{"{계좌}"}</b>는 자료실 건물정보의 계좌를 먼저 쓰고, 없으면 아래 기본 계좌를 씁니다.
+          </p>
+          <Field label="기본 입금계좌"><input className={inputCls} value={acct} onChange={(e) => setActt(e.target.value)} placeholder="예: 국민 123-45-6789 보담" /></Field>
+          <Field label="문의처"><input className={inputCls} value={contact} onChange={(e) => setContact(e.target.value)} /></Field>
+          <button className={btnGhost + " w-full"} disabled={busy} onClick={saveTpl}>문구 설정 저장</button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 /* 매물 1건 — 정산 설정 · 입금 내역 · 추심 연락 기록 */
 function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
   const [pays, setPays] = useState([]);
@@ -2156,18 +2279,26 @@ function ArrearsView({ leases, buildings, me, onBack }) {
   const [imp, setImp] = useState(false);
   const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [sel, setSel] = useState(() => new Set());   // 문자 보낼 대상 (lease id)
+  const [settings, setSettings] = useState({});      // 문구 템플릿·기본계좌·문의처
+  const [accounts, setAccounts] = useState({});      // 건물명 → 입금계좌 (자료실 건물정보)
+  const [smsQ, setSmsQ] = useState(null);            // 문자 보내기 대기열
   const today = new Date();
 
   const load = async () => {
     setLoading(true);
-    const [b, s] = await Promise.all([
+    const [b, s, st, bi] = await Promise.all([
       fetchTableAll("lease_billing", "*", ["lease_id"]),
       fetchTableAll("payment_summary", "*", ["lease_id"]),
+      sb.from("app_settings").select("*"),
+      sb.from("building_info").select("name, owner_account"),   // 건물별 입금계좌 (56행)
     ]);
-    const bm = {}, sm = {};
+    const bm = {}, sm = {}, cf = {}, ac = {};
     (b.data || []).forEach((x) => { bm[x.lease_id] = x; });
     (s.data || []).forEach((x) => { sm[x.lease_id] = x; });
-    setBills(bm); setSums(sm); setLoading(false);
+    (st.data || []).forEach((x) => { cf[x.key] = x.value; });
+    (bi.data || []).forEach((x) => { if (x.owner_account) ac[x.name] = x.owner_account; });
+    setBills(bm); setSums(sm); setSettings(cf); setAccounts(ac); setLoading(false);
   };
   useEffect(() => { load(); }, []);
 
@@ -2211,7 +2342,11 @@ function ArrearsView({ leases, buildings, me, onBack }) {
         <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5 font-semibold">관리인 전용</span>
         <div className="flex-1" />
         <button className={btnGhost} onClick={onBack}>← 관리모드</button>
-        <button className={btnPrimary} onClick={() => setImp(true)}>💳 거래내역 넣기</button>
+        <button className={btnGhost} onClick={() => setImp(true)}>💳 거래내역 넣기</button>
+        <button className={btnPrimary} disabled={sel.size === 0}
+          onClick={() => setSmsQ(rows.filter((r) => sel.has(r.l.id)))}>
+          💬 독촉 문자{sel.size > 0 ? ` (${sel.size}명)` : ""}
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
@@ -2242,16 +2377,25 @@ function ArrearsView({ leases, buildings, me, onBack }) {
         <div className="overflow-x-auto -mx-4 sm:mx-0">
           <table className="w-full text-sm min-w-[640px]">
             <thead><tr className="text-slate-500 border-b">
+              <th className="px-2 w-8">
+                <input type="checkbox" title="연락처 있는 행 전체 선택"
+                  checked={sel.size > 0 && sel.size === rows.filter((r) => r.l.tenant_phone).length}
+                  onChange={(e) => setSel(e.target.checked ? new Set(rows.filter((r) => r.l.tenant_phone).map((r) => r.l.id)) : new Set())} />
+              </th>
               <th className="text-left py-2 px-2">매물</th><th className="text-left px-2">세입자</th>
               <th className="text-right px-2">월 청구</th><th className="text-right px-2">미납액</th>
               <th className="text-right px-2">밀린 달</th><th className="text-left px-2">최근 입금</th><th className="px-2"></th>
             </tr></thead>
             <tbody>
-              {rows.length === 0 && <tr><td colSpan="7" className="text-center text-slate-400 py-8">해당하는 매물이 없습니다.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan="8" className="text-center text-slate-400 py-8">해당하는 매물이 없습니다.</td></tr>}
               {rows.map(({ l, b, a }) => {
                 const ph = (l.tenant_phone || "").replace(/[^0-9]/g, "");
                 return (
                   <tr key={l.id} className="border-b hover:bg-slate-50">
+                    <td className="px-2">
+                      <input type="checkbox" disabled={!ph} checked={sel.has(l.id)}
+                        onChange={(e) => { const n = new Set(sel); e.target.checked ? n.add(l.id) : n.delete(l.id); setSel(n); }} />
+                    </td>
                     <td className="py-1.5 px-2 whitespace-nowrap">{b} <b>{l.room_number}</b></td>
                     <td className="px-2 whitespace-nowrap">{l.tenant_name || <span className="text-slate-300">·</span>}</td>
                     <td className="px-2 text-right text-slate-500">{manwon(a.monthly)}</td>
@@ -2261,7 +2405,8 @@ function ArrearsView({ leases, buildings, me, onBack }) {
                     <td className="px-2 text-slate-500 whitespace-nowrap">{a.lastPaid || <span className="text-slate-300">없음</span>}</td>
                     <td className="px-2 whitespace-nowrap text-right">
                       {ph && <a className="text-blue-600 mr-2" href={"tel:" + ph}>📞</a>}
-                      {ph && <a className="text-blue-600 mr-2" href={"sms:" + ph}>💬</a>}
+                      {ph && <button className="text-blue-600 mr-2" title="독촉 문자"
+                        onClick={() => setSmsQ([{ l, b, a }])}>💬</button>}
                       <button className="text-xs border border-slate-300 rounded px-2 py-0.5 hover:bg-slate-100" onClick={() => setPick(l)}>기록</button>
                     </td>
                   </tr>
@@ -2276,6 +2421,9 @@ function ArrearsView({ leases, buildings, me, onBack }) {
         onSaved={(n) => { alert(n + "건 저장했습니다."); load(); }} />}
       {pick && <CollectionModal lease={pick} building={buildings.find((x) => x.id === pick.building_id)}
         bill={bills[pick.id]} me={me} onClose={() => setPick(null)} onSaved={load} />}
+      {smsQ && smsQ.length > 0 && <SmsComposeModal queue={smsQ} settings={settings} accounts={accounts} me={me}
+        onClose={() => setSmsQ(null)}
+        onDone={(n) => { setSmsQ(null); setSel(new Set()); if (n > 0) alert(n + "건을 보낸 것으로 기록했습니다."); load(); }} />}
     </div>
   );
 }
