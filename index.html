@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.13.3";
+const APP_VERSION = "2026.09.13.4";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2311,13 +2311,19 @@ function ArrearsView({ leases, buildings, me, onBack }) {
 
   const bName = (id) => (buildings.find((x) => x.id === id) || {}).name || "";
   // 청구 대상 = 점유중 + 월 청구액 > 0 (전세라 관리비만 있는 집도 대상)
-  // 대상 = **공실이 아닌** 세대 + 월 청구액 > 0. 중도퇴실은 퇴실 전까지 내야 하므로 포함한다.
+  /* 대상 = **공실이 아닌** 세대 전부. 중도퇴실은 퇴실 전까지 내야 하므로 포함한다.
+     ⛔ 월 청구액이 0원인 세대를 **목록에서 빼지 않는다** — 「정말 안 받는 집」인지
+        「금액 입력이 빠진 집」인지 화면만 봐선 구분이 안 되는데, 조용히 빼면
+        **받을 돈을 못 받고 있는 걸 아무도 모른다**(중도퇴실 49세대를 뺐던 것과 같은 병). */
   const rows = useMemo(() => leases
-    .filter((l) => !l.vacant && monthBill(l) > 0)
+    .filter((l) => !l.vacant)
     .map((l) => ({ l, b: bName(l.building_id), a: arrearsOf(l, bills[l.id], sums[l.id], today) }))
     .filter((r) => {
       if (only === "owed" && !(r.a.started && r.a.owed > 0)) return false;
+      if (only === "notset" && !(r.a.monthly > 0) ) return false;
       if (only === "notset" && r.a.started) return false;
+      if (only === "noamt" && r.a.monthly > 0) return false;
+      if (only !== "noamt" && only !== "all" && r.a.monthly <= 0) return false;
       if (q.trim()) {
         const t = (r.b + " " + r.l.room_number + " " + (r.l.tenant_name || "")).replace(/\s/g, "");
         if (!t.includes(q.replace(/\s/g, ""))) return false;
@@ -2326,14 +2332,15 @@ function ArrearsView({ leases, buildings, me, onBack }) {
     })
     .sort((x, y) => y.a.owed - x.a.owed), [leases, buildings, bills, sums, only, q]);
 
-  const all = leases.filter((l) => !l.vacant && monthBill(l) > 0);
-  const notSet = all.filter((l) => !bills[l.id]).length;
-  const totalOwed = all.reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
-  const owedCnt = all.filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
+  const all = leases.filter((l) => !l.vacant);
+  const noAmt = all.filter((l) => monthBill(l) <= 0);      // 월세·관리비가 둘 다 0 = 금액 미입력 의심
+  const notSet = all.filter((l) => !bills[l.id] && monthBill(l) > 0).length;
+  const totalOwed = all.filter((l) => monthBill(l) > 0).reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
+  const owedCnt = all.filter((l) => monthBill(l) > 0).filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
 
   /** 정산을 아직 안 연 세대를 이번 달 1일부터 일괄 시작 */
   const startAll = async () => {
-    const tgt = all.filter((l) => !bills[l.id]);
+    const tgt = all.filter((l) => !bills[l.id] && monthBill(l) > 0);
     const from = today.getFullYear() + "-" + pad2(today.getMonth() + 1) + "-01";
     if (!confirm(`아직 정산을 안 연 ${tgt.length}세대를 ${from}부터 시작할까요?\n\n그 이전 미납은 0원으로 두고, 세대별로 '기초 미납'에 직접 넣으시면 됩니다.`)) return;
     setBusy(true);
@@ -2364,7 +2371,12 @@ function ArrearsView({ leases, buildings, me, onBack }) {
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <p className="text-xs text-slate-400">미납 세대</p>
-          <p className="text-xl font-extrabold text-slate-700">{owedCnt}<span className="text-sm font-normal text-slate-400"> / {all.length}</span></p>
+          <p className="text-xl font-extrabold text-slate-700">{owedCnt}<span className="text-sm font-normal text-slate-400"> / {all.length - noAmt.length}</span></p>
+          {noAmt.length > 0 && (
+            <button className="text-xs text-amber-600 underline mt-0.5" onClick={() => setOnly("noamt")}>
+              ⚠️ 금액 미입력 {noAmt.length}세대는 계산 못 함
+            </button>
+          )}
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-3 col-span-2 sm:col-span-1">
           <p className="text-xs text-slate-400">정산 미개시</p>
@@ -2374,7 +2386,7 @@ function ArrearsView({ leases, buildings, me, onBack }) {
       </div>
 
       <div className="flex gap-1.5 mb-2 flex-wrap items-center">
-        {[["owed", "미납만"], ["all", "전체"], ["notset", "정산 미개시"]].map(([k, label]) => (
+        {[["owed", "미납만"], ["all", "전체"], ["notset", "정산 미개시"], ["noamt", `금액없음 ${noAmt.length}`]].map(([k, label]) => (
           <button key={k} onClick={() => setOnly(k)}
             className={"text-xs rounded-full px-3 py-1 font-semibold border " + (only === k ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-300")}>{label}</button>
         ))}
@@ -2407,9 +2419,12 @@ function ArrearsView({ leases, buildings, me, onBack }) {
                     <td className="py-1.5 px-2 whitespace-nowrap">{b} <b>{l.room_number}</b></td>
                     <td className="px-2 whitespace-nowrap">{l.tenant_name || <span className="text-slate-300">·</span>}
                       {a.leaving && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-bold">퇴실예정</span>}</td>
-                    <td className="px-2 text-right text-slate-500">{manwon(a.monthly)}</td>
+                    <td className="px-2 text-right text-slate-500">
+                      {a.monthly > 0 ? manwon(a.monthly) :
+                        <span className="text-amber-600 font-semibold" title="월세·관리비가 둘 다 0원입니다">금액없음</span>}</td>
                     <td className={"px-2 text-right font-bold " + (a.owed > 0 ? "text-red-600" : "text-slate-300")}>
-                      {a.started ? won(a.owed) : <span className="text-slate-300">미개시</span>}</td>
+                      {a.monthly <= 0 ? <span className="text-amber-600 text-xs">계산 불가</span>
+                        : a.started ? won(a.owed) : <span className="text-slate-300">미개시</span>}</td>
                     <td className="px-2 text-right">{a.owed > 0 && a.owedMonths > 0 ? <span className="text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold">{a.owedMonths}개월</span> : ""}</td>
                     <td className="px-2 text-slate-500 whitespace-nowrap">{a.lastPaid || <span className="text-slate-300">없음</span>}</td>
                     <td className="px-2 whitespace-nowrap text-right">
