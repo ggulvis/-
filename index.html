@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.11.1";
+const APP_VERSION = "2026.09.13.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1862,6 +1862,424 @@ function EventModal({ event, leases, buildings, me, onClose, onSaved }) {
   );
 }
 
+/* ---------------- 미납 관리 (채권추심) ----------------
+   ⚠️ **단위가 둘이다** — leases 의 월세·관리비는 **만원**, payments.amount 는 **원**
+      (은행 거래내역이 원 단위로 오기 때문). 섞으면 미납액이 1만 배 틀린다.
+   ⚠️ **과거 입금 기록이 없다.** 그래서 «정산 시작월»(lease_billing.settle_from)부터만
+      청구를 센다. 그 이전 미납은 opening_balance 에 사람이 넣는다. 이 장치가 없으면
+      기능을 켜자마자 전 세대가 «수년치 미납»으로 떠서 아무 쓸모가 없다.
+   · 화면 데이터는 fetchAll(1분 폴링)에 싣지 않고 **이 화면을 열 때만** 받는다.
+     payments 는 615세대 × 매달 쌓여 금방 수천 행이 된다(§AE 사진 urls 와 같은 이유). */
+const pad2 = (n) => String(n).padStart(2, "0");
+const monthBill = (l) => ((Number(l.monthly_rent) || 0) + (Number(l.management_fee) || 0)) * 10000;
+const won = (n) => (Number(n) || 0).toLocaleString("ko-KR") + "원";
+const manwon = (n) => Math.round((Number(n) || 0) / 10000).toLocaleString("ko-KR") + "만원";
+
+/** 정산 시작월부터 오늘까지 «납부일이 이미 지난» 달 수 */
+function billedMonths(settleFrom, dueDay, today) {
+  if (!settleFrom) return 0;
+  const s = new Date(settleFrom + "T00:00:00");
+  if (isNaN(s.getTime())) return 0;
+  let y = s.getFullYear(), m = s.getMonth(), n = 0;
+  for (let i = 0; i < 600; i++) {
+    const last = new Date(y, m + 1, 0).getDate();      // 그 달의 말일 (31일 납부일 보정)
+    if (new Date(y, m, Math.min(dueDay || 1, last)) > today) break;
+    n++; m++; if (m > 11) { m = 0; y++; }
+  }
+  return n;
+}
+
+function arrearsOf(lease, bill, sum, today) {
+  const monthly = monthBill(lease);
+  const settle = (bill && bill.settle_from) || null;
+  const dueDay = (bill && bill.due_day) || (lease.start_date ? Number(String(lease.start_date).slice(8, 10)) : 1);
+  const months = billedMonths(settle, dueDay, today);
+  const opening = Number((bill && bill.opening_balance) || 0);
+  const due = months * monthly + opening;
+  const paid = Number((sum && sum.paid) || 0);
+  const owed = due - paid;
+  return { monthly, dueDay, months, opening, due, paid, owed, started: !!settle,
+           lastPaid: (sum && sum.last_paid) || null,
+           owedMonths: monthly > 0 ? Math.floor(owed / monthly) : 0 };
+}
+
+/** 은행 거래내역 붙여넣기 → 입금 후보. 형식이 제각각이라 느슨하게 읽고 **사람이 고친다**. */
+const BANK_STOP = /^(입금|출금|잔액|이체|은행|계좌|거래|일시|적요|내용|메모|구분|비고|합계|수수료|카드|체크|해외|기업|국민|신한|우리|하나|농협|신협|새마을|토스|카카오|케이|KB|NH|IBK|SC|KEB|ATM|CMS|CD)$/i;
+function parseBankText(text, defYear) {
+  const out = [];
+  (text || "").split(/\r?\n/).forEach((raw) => {
+    const t = raw.replace(/\t/g, " ").trim();
+    if (!t) return;
+    let d = "", m;
+    if ((m = t.match(/(20\d{2})[-./](\d{1,2})[-./](\d{1,2})/))) d = m[1] + "-" + pad2(m[2]) + "-" + pad2(m[3]);
+    else if ((m = t.match(/(?:^|[^\d])(\d{2})[-./](\d{1,2})[-./](\d{1,2})(?!\d)/))) d = "20" + m[1] + "-" + pad2(m[2]) + "-" + pad2(m[3]);
+    else if ((m = t.match(/(?:^|[^\d])(\d{1,2})[/.](\d{1,2})(?!\d)/))) d = defYear + "-" + pad2(m[1]) + "-" + pad2(m[2]);
+    // 잔액과 계좌번호를 먼저 지운다 — 안 지우면 «잔액»을 입금액으로 읽는다(보통 더 크다)
+    const s = t.replace(/잔액[^0-9]{0,6}[0-9,]+/g, " ").replace(/\d{2,6}-\d{2,6}-\d{2,8}/g, " ");
+    const nums = [...s.matchAll(/(\d{1,3}(?:,\d{3})+|\d{4,})/g)]
+      .map((x) => parseInt(x[1].replace(/,/g, ""), 10))
+      .filter((n) => n >= 1000 && n <= 100000000);
+    if (!nums.length) return;
+    const names = (t.match(/[가-힣]{2,10}|[A-Za-z]{2,20}/g) || []).filter((w) => !BANK_STOP.test(w));
+    out.push({ raw, paid_on: d, amount: Math.max(...nums),
+               payer_name: names.length ? names[names.length - 1] : "", lease_id: "" });
+  });
+  return out;
+}
+
+/* 거래내역 붙여넣기 → 매물에 배정 → 저장 */
+function PaymentImportModal({ leases, buildings, onClose, onSaved }) {
+  const [text, setText] = useState("");
+  const [rows, setRows] = useState(null);
+  const [alias, setAlias] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const year = new Date().getFullYear();
+  const bName = (id) => (buildings.find((b) => b.id === id) || {}).name || "";
+  const targets = useMemo(() => leases
+    .filter((l) => !l.vacant && !l.move_out)
+    .map((l) => ({ id: l.id, label: bName(l.building_id) + " " + l.room_number + (l.tenant_name ? " · " + l.tenant_name : ""),
+                   name: (l.tenant_name || "").replace(/\s/g, "") }))
+    .sort((a, b) => a.label.localeCompare(b.label, "ko")), [leases, buildings]);
+
+  useEffect(() => {
+    sb.from("payer_alias").select("*").then(({ data }) => {
+      const m = {}; (data || []).forEach((x) => { m[x.payer_name] = x.lease_id; }); setAlias(m);
+    });
+  }, []);
+
+  const analyze = () => {
+    const parsed = parseBankText(text, year);
+    // 배정 순서: ①전에 지정해 둔 입금자명 ②세입자 이름 정확히 일치(유일할 때만)
+    setRows(parsed.map((r) => {
+      const key = (r.payer_name || "").replace(/\s/g, "");
+      let id = alias[key] || "";
+      if (!id && key) {
+        const hit = targets.filter((t) => t.name && t.name === key);
+        if (hit.length === 1) id = hit[0].id;
+      }
+      return { ...r, lease_id: id };
+    }));
+  };
+  const upd = (i, k, v) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+
+  const save = async () => {
+    const ok = (rows || []).filter((r) => r.lease_id && r.paid_on && r.amount > 0);
+    if (!ok.length) { setErr("저장할 행이 없습니다. 날짜·금액·매물을 채워주세요."); return; }
+    setBusy(true); setErr("");
+    const { error } = await sb.from("payments").upsert(
+      ok.map((r) => ({ lease_id: r.lease_id, paid_on: r.paid_on, amount: r.amount,
+                       payer_name: r.payer_name || null, raw: r.raw, source: "붙여넣기" })),
+      { onConflict: "lease_id,paid_on,amount,payer_name", ignoreDuplicates: true });
+    if (error) { setBusy(false); setErr(error.message); return; }
+    // 이번에 사람이 지정한 입금자명은 기억해 둔다 — 가족 명의 입금도 다음부터 자동 배정된다
+    const al = ok.filter((r) => r.payer_name).map((r) => ({ payer_name: r.payer_name.replace(/\s/g, ""), lease_id: r.lease_id }));
+    if (al.length) await sb.from("payer_alias").upsert(al, { onConflict: "payer_name" });
+    setBusy(false); onSaved(ok.length); onClose();
+  };
+
+  const unassigned = (rows || []).filter((r) => !r.lease_id).length;
+  return (
+    <Modal title="💳 거래내역 넣기" onClose={onClose} wide>
+      {!rows ? (
+        <>
+          <p className="text-sm text-slate-500 mb-2 break-keep">
+            은행 앱의 거래내역이나 입금 알림 문자를 <b>그대로 붙여넣으세요.</b> 한 줄에 한 건으로 읽습니다.
+            날짜·금액·입금자명을 뽑아내며, <b>저장 전에 직접 고칠 수 있습니다.</b>
+          </p>
+          <textarea className={inputCls + " min-h-[220px] font-mono text-xs"} value={text} onChange={(e) => setText(e.target.value)}
+            placeholder={"예)\n09/13 15:32 홍길동 500,000 입금 잔액 1,234,567\n2026-09-11 김철수 450000\n[KB]09/05 이영희 620,000 입금"} />
+          <button className={btnPrimary + " w-full mt-3"} disabled={!text.trim()} onClick={analyze}>해석하기</button>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span className="text-sm font-semibold text-slate-700">{rows.length}건 읽음</span>
+            {unassigned > 0 && <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5 font-semibold">매물 미지정 {unassigned}건</span>}
+            <div className="flex-1" />
+            <button className={btnGhost} onClick={() => setRows(null)}>← 다시 붙여넣기</button>
+          </div>
+          <p className="text-xs text-slate-400 mb-2 break-keep">매물을 안 고른 행은 저장되지 않습니다. 한 번 고르면 그 입금자명은 다음부터 자동 배정됩니다.</p>
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="w-full text-xs min-w-[620px]">
+              <thead><tr className="text-slate-500 border-b">
+                <th className="text-left py-1.5 px-1">날짜</th><th className="text-right px-1">금액</th>
+                <th className="text-left px-1">입금자</th><th className="text-left px-1">매물</th></tr></thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className={"border-b " + (r.lease_id ? "" : "bg-amber-50")}>
+                    <td className="py-1 px-1"><input className="w-24 border rounded px-1 py-0.5" value={r.paid_on} onChange={(e) => upd(i, "paid_on", e.target.value)} placeholder="2026-09-13" /></td>
+                    <td className="px-1 text-right"><input className="w-24 border rounded px-1 py-0.5 text-right" value={r.amount} onChange={(e) => upd(i, "amount", Number(e.target.value.replace(/\D/g, "")) || 0)} /></td>
+                    <td className="px-1"><input className="w-20 border rounded px-1 py-0.5" value={r.payer_name} onChange={(e) => upd(i, "payer_name", e.target.value)} /></td>
+                    <td className="px-1">
+                      <select className="w-full border rounded px-1 py-0.5" value={r.lease_id} onChange={(e) => upd(i, "lease_id", e.target.value)}>
+                        <option value="">— 고르세요 —</option>
+                        {targets.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
+          <button className={btnPrimary + " w-full mt-3"} disabled={busy} onClick={save}>
+            {busy ? "저장 중…" : `매물이 지정된 ${rows.length - unassigned}건 저장`}
+          </button>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/* 매물 1건 — 정산 설정 · 입금 내역 · 추심 연락 기록 */
+function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
+  const [pays, setPays] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [settle, setSettle] = useState((bill && bill.settle_from) || "");
+  const [opening, setOpening] = useState(String((bill && bill.opening_balance) || 0));
+  const [dueDay, setDueDay] = useState(String((bill && bill.due_day) || ""));
+  const [act, setAct] = useState({ action: "전화", result: "부재", promise_date: "", note: "" });
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const [p, c] = await Promise.all([
+      sb.from("payments").select("*").eq("lease_id", lease.id).order("paid_on", { ascending: false }),
+      sb.from("collection_log").select("*").eq("lease_id", lease.id).order("acted_at", { ascending: false }),
+    ]);
+    setPays(p.data || []); setLogs(c.data || []);
+  };
+  useEffect(() => { load(); }, [lease.id]);
+
+  const saveBill = async () => {
+    if (!settle) { alert("정산 시작월을 정해주세요."); return; }
+    setBusy(true);
+    const { error } = await sb.from("lease_billing").upsert({
+      lease_id: lease.id, settle_from: settle, opening_balance: Number(opening) || 0,
+      due_day: dueDay ? Number(dueDay) : null, updated_at: new Date().toISOString(),
+    }, { onConflict: "lease_id" });
+    setBusy(false);
+    if (error) alert("저장 실패: " + error.message); else onSaved();
+  };
+  const addLog = async () => {
+    setBusy(true);
+    const { error } = await sb.from("collection_log").insert({
+      lease_id: lease.id, by_name: me.full_name || me.email, action: act.action, result: act.result,
+      promise_date: act.promise_date || null, note: act.note || null,
+    });
+    setBusy(false);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    setAct({ action: "전화", result: "부재", promise_date: "", note: "" });
+    load();
+  };
+  const delPay = async (id) => {
+    if (!confirm("이 입금 기록을 지울까요?")) return;
+    await sb.from("payments").delete().eq("id", id); load(); onSaved();
+  };
+
+  const a = arrearsOf(lease, { settle_from: settle, opening_balance: Number(opening) || 0, due_day: dueDay ? Number(dueDay) : null }, { paid: pays.reduce((s, p) => s + Number(p.amount), 0) }, new Date());
+  const phone = (lease.tenant_phone || "").replace(/[^0-9]/g, "");
+  return (
+    <Modal title={`💰 ${(building && building.name) || ""} ${lease.room_number} — 미납 관리`} onClose={onClose} wide>
+      <div className="rounded-xl border border-slate-200 p-3 mb-3 bg-slate-50">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="font-bold text-slate-800">{lease.tenant_name || "(세입자 미상)"}</span>
+          {lease.tenant_phone && <span className="text-sm text-slate-500">{lease.tenant_phone}</span>}
+          <div className="flex-1" />
+          {phone && <a className={btnGhost} href={"tel:" + phone}>📞 전화</a>}
+          {phone && <a className={btnGhost} href={"sms:" + phone}>💬 문자</a>}
+        </div>
+        <p className="text-sm mt-2">
+          월 청구 <b>{won(a.monthly)}</b> (월세 {lease.monthly_rent || 0}만 + 관리비 {lease.management_fee || 0}만) ·
+          납부일 매월 <b>{a.dueDay}일</b>
+        </p>
+        <p className="text-sm mt-1">
+          청구 {a.months}개월 {won(a.months * a.monthly)}{a.opening ? " + 기초미납 " + won(a.opening) : ""} − 입금 {won(a.paid)} ={" "}
+          <b className={a.owed > 0 ? "text-red-600" : "text-emerald-600"}>{a.owed > 0 ? "미납 " + won(a.owed) : "미납 없음"}</b>
+        </p>
+      </div>
+
+      <h4 className="font-semibold text-slate-700 text-sm mb-1">정산 설정</h4>
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <Field label="정산 시작월"><input type="date" className={inputCls} value={settle} onChange={(e) => setSettle(e.target.value)} /></Field>
+        <Field label="기초 미납(원)"><input className={inputCls} value={opening} onChange={(e) => setOpening(e.target.value.replace(/[^0-9]/g, ""))} /></Field>
+        <Field label="납부일(비우면 입주일)"><input className={inputCls} value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ""))} placeholder={String(a.dueDay)} /></Field>
+      </div>
+      <button className={btnPrimary + " w-full mb-4"} disabled={busy} onClick={saveBill}>정산 설정 저장</button>
+
+      <h4 className="font-semibold text-slate-700 text-sm mb-1">입금 내역 {pays.length}건</h4>
+      <div className="border rounded-lg divide-y mb-4 max-h-44 overflow-y-auto">
+        {pays.length === 0 && <p className="text-xs text-slate-400 p-3">아직 없습니다.</p>}
+        {pays.map((p) => (
+          <div key={p.id} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+            <span className="text-slate-500 w-24 shrink-0">{p.paid_on}</span>
+            <span className="font-semibold">{won(p.amount)}</span>
+            <span className="text-slate-400 text-xs truncate">{p.payer_name || ""}</span>
+            <div className="flex-1" />
+            <button className="text-xs text-red-500 hover:underline shrink-0" onClick={() => delPay(p.id)}>삭제</button>
+          </div>
+        ))}
+      </div>
+
+      <h4 className="font-semibold text-slate-700 text-sm mb-1">추심 기록</h4>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <Field label="방법"><select className={inputCls} value={act.action} onChange={(e) => setAct({ ...act, action: e.target.value })}>
+          {["전화", "문자", "카톡", "방문", "내용증명"].map((x) => <option key={x}>{x}</option>)}</select></Field>
+        <Field label="결과"><select className={inputCls} value={act.result} onChange={(e) => setAct({ ...act, result: e.target.value })}>
+          {["통화됨", "부재", "지급약속", "거부", "일부입금"].map((x) => <option key={x}>{x}</option>)}</select></Field>
+        <Field label="약속일"><input type="date" className={inputCls} value={act.promise_date} onChange={(e) => setAct({ ...act, promise_date: e.target.value })} /></Field>
+        <Field label="메모"><input className={inputCls} value={act.note} onChange={(e) => setAct({ ...act, note: e.target.value })} /></Field>
+      </div>
+      <button className={btnGhost + " w-full mb-3"} disabled={busy} onClick={addLog}>＋ 기록 남기기</button>
+      <div className="border rounded-lg divide-y max-h-44 overflow-y-auto">
+        {logs.length === 0 && <p className="text-xs text-slate-400 p-3">아직 없습니다.</p>}
+        {logs.map((c) => (
+          <div key={c.id} className="px-3 py-1.5 text-sm">
+            <span className="text-slate-500 text-xs">{String(c.acted_at).slice(0, 10)}</span>{" "}
+            <b>{c.action}</b> · {c.result}
+            {c.promise_date && <span className="text-amber-600"> · 약속 {c.promise_date}</span>}
+            <span className="text-slate-400 text-xs"> · {c.by_name}</span>
+            {c.note && <p className="text-xs text-slate-500 break-keep">{c.note}</p>}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/* 미납 현황 — 채권추심 작업 화면 */
+function ArrearsView({ leases, buildings, me, onBack }) {
+  const [bills, setBills] = useState({});
+  const [sums, setSums] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [only, setOnly] = useState("owed");   // owed | all | notset
+  const [q, setQ] = useState("");
+  const [imp, setImp] = useState(false);
+  const [pick, setPick] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const today = new Date();
+
+  const load = async () => {
+    setLoading(true);
+    const [b, s] = await Promise.all([
+      fetchTableAll("lease_billing", "*", ["lease_id"]),
+      fetchTableAll("payment_summary", "*", ["lease_id"]),
+    ]);
+    const bm = {}, sm = {};
+    (b.data || []).forEach((x) => { bm[x.lease_id] = x; });
+    (s.data || []).forEach((x) => { sm[x.lease_id] = x; });
+    setBills(bm); setSums(sm); setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const bName = (id) => (buildings.find((x) => x.id === id) || {}).name || "";
+  // 청구 대상 = 점유중 + 월 청구액 > 0 (전세라 관리비만 있는 집도 대상)
+  const rows = useMemo(() => leases
+    .filter((l) => !l.vacant && !l.move_out && monthBill(l) > 0)
+    .map((l) => ({ l, b: bName(l.building_id), a: arrearsOf(l, bills[l.id], sums[l.id], today) }))
+    .filter((r) => {
+      if (only === "owed" && !(r.a.started && r.a.owed > 0)) return false;
+      if (only === "notset" && r.a.started) return false;
+      if (q.trim()) {
+        const t = (r.b + " " + r.l.room_number + " " + (r.l.tenant_name || "")).replace(/\s/g, "");
+        if (!t.includes(q.replace(/\s/g, ""))) return false;
+      }
+      return true;
+    })
+    .sort((x, y) => y.a.owed - x.a.owed), [leases, buildings, bills, sums, only, q]);
+
+  const all = leases.filter((l) => !l.vacant && !l.move_out && monthBill(l) > 0);
+  const notSet = all.filter((l) => !bills[l.id]).length;
+  const totalOwed = all.reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
+  const owedCnt = all.filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
+
+  /** 정산을 아직 안 연 세대를 이번 달 1일부터 일괄 시작 */
+  const startAll = async () => {
+    const tgt = all.filter((l) => !bills[l.id]);
+    const from = today.getFullYear() + "-" + pad2(today.getMonth() + 1) + "-01";
+    if (!confirm(`아직 정산을 안 연 ${tgt.length}세대를 ${from}부터 시작할까요?\n\n그 이전 미납은 0원으로 두고, 세대별로 '기초 미납'에 직접 넣으시면 됩니다.`)) return;
+    setBusy(true);
+    const { error } = await sb.from("lease_billing").upsert(
+      tgt.map((l) => ({ lease_id: l.id, settle_from: from, opening_balance: 0 })), { onConflict: "lease_id" });
+    setBusy(false);
+    if (error) alert("실패: " + error.message); else load();
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <h2 className="font-bold text-xl text-slate-800">💰 미납 관리</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5 font-semibold">관리인 전용</span>
+        <div className="flex-1" />
+        <button className={btnGhost} onClick={onBack}>← 관리모드</button>
+        <button className={btnPrimary} onClick={() => setImp(true)}>💳 거래내역 넣기</button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+          <p className="text-xs text-red-500">총 미납액</p>
+          <p className="text-xl font-extrabold text-red-600">{won(totalOwed)}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <p className="text-xs text-slate-400">미납 세대</p>
+          <p className="text-xl font-extrabold text-slate-700">{owedCnt}<span className="text-sm font-normal text-slate-400"> / {all.length}</span></p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3 col-span-2 sm:col-span-1">
+          <p className="text-xs text-slate-400">정산 미개시</p>
+          <p className="text-xl font-extrabold text-slate-700">{notSet}세대</p>
+          {notSet > 0 && <button className="text-xs text-blue-600 underline mt-0.5" disabled={busy} onClick={startAll}>이번 달부터 일괄 시작</button>}
+        </div>
+      </div>
+
+      <div className="flex gap-1.5 mb-2 flex-wrap items-center">
+        {[["owed", "미납만"], ["all", "전체"], ["notset", "정산 미개시"]].map(([k, label]) => (
+          <button key={k} onClick={() => setOnly(k)}
+            className={"text-xs rounded-full px-3 py-1 font-semibold border " + (only === k ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-300")}>{label}</button>
+        ))}
+        <input className={inputCls + " flex-1 min-w-[140px] max-w-xs"} value={q} onChange={(e) => setQ(e.target.value)} placeholder="건물·호수·세입자 검색" />
+      </div>
+
+      {loading ? <p className="text-sm text-slate-400 py-8 text-center">불러오는 중…</p> : (
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead><tr className="text-slate-500 border-b">
+              <th className="text-left py-2 px-2">매물</th><th className="text-left px-2">세입자</th>
+              <th className="text-right px-2">월 청구</th><th className="text-right px-2">미납액</th>
+              <th className="text-right px-2">밀린 달</th><th className="text-left px-2">최근 입금</th><th className="px-2"></th>
+            </tr></thead>
+            <tbody>
+              {rows.length === 0 && <tr><td colSpan="7" className="text-center text-slate-400 py-8">해당하는 매물이 없습니다.</td></tr>}
+              {rows.map(({ l, b, a }) => {
+                const ph = (l.tenant_phone || "").replace(/[^0-9]/g, "");
+                return (
+                  <tr key={l.id} className="border-b hover:bg-slate-50">
+                    <td className="py-1.5 px-2 whitespace-nowrap">{b} <b>{l.room_number}</b></td>
+                    <td className="px-2 whitespace-nowrap">{l.tenant_name || <span className="text-slate-300">·</span>}</td>
+                    <td className="px-2 text-right text-slate-500">{manwon(a.monthly)}</td>
+                    <td className={"px-2 text-right font-bold " + (a.owed > 0 ? "text-red-600" : "text-slate-300")}>
+                      {a.started ? won(a.owed) : <span className="text-slate-300">미개시</span>}</td>
+                    <td className="px-2 text-right">{a.owed > 0 && a.owedMonths > 0 ? <span className="text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold">{a.owedMonths}개월</span> : ""}</td>
+                    <td className="px-2 text-slate-500 whitespace-nowrap">{a.lastPaid || <span className="text-slate-300">없음</span>}</td>
+                    <td className="px-2 whitespace-nowrap text-right">
+                      {ph && <a className="text-blue-600 mr-2" href={"tel:" + ph}>📞</a>}
+                      {ph && <a className="text-blue-600 mr-2" href={"sms:" + ph}>💬</a>}
+                      <button className="text-xs border border-slate-300 rounded px-2 py-0.5 hover:bg-slate-100" onClick={() => setPick(l)}>기록</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {imp && <PaymentImportModal leases={leases} buildings={buildings} onClose={() => setImp(false)}
+        onSaved={(n) => { alert(n + "건 저장했습니다."); load(); }} />}
+      {pick && <CollectionModal lease={pick} building={buildings.find((x) => x.id === pick.building_id)}
+        bill={bills[pick.id]} me={me} onClose={() => setPick(null)} onSaved={load} />}
+    </div>
+  );
+}
+
 /* ---------------- 꽝 없는 룰렛 이벤트 ---------------- */
 const ROULETTE_START = "2026-07-17";
 const ROULETTE_END = "2026-09-28";
@@ -3533,7 +3951,7 @@ function MainApp({ session, profile, onProfileChanged }) {
   const [adminStaff, setAdminStaff] = useState({}); // lease_id → 담당실장 (관리자 전용)
   const [photoCounts, setPhotoCounts] = useState({}); // lease_id → 꿀방 사진 장수 (목록 배지용)
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive | organize | manage
+  const [view, setView] = useState({ name: "home" }); // home | building | all | events | archive | organize | manage | arrears
   const [mgrMode, setMgrMode] = useState(null); // 관리인+ 로그인 직후 모드 선택: null=미선택(선택화면) | "normal" | "manage"
   const [region, setRegion] = useState("all");   // 지역 탭
   const [subArea, setSubArea] = useState("전체"); // 세부 동 탭
@@ -4181,6 +4599,8 @@ function MainApp({ session, profile, onProfileChanged }) {
                   desc="계약서 확인·승인 처리" onClick={() => setModal({ type: "subs" })} />
                 <Card emoji="✏️" title="임대매물 정보 수정" tone="green"
                   desc="건물별 정리 표에서 바로 입력·수정 (PC)" onClick={() => setView({ name: "organize" })} />
+                <Card emoji="💰" title="미납 관리" tone="green"
+                  desc="월세·관리비 미납 확인 · 연락 · 추심 기록" onClick={() => setView({ name: "arrears" })} />
                 <Card emoji="📚" title="자료실"
                   desc="건물정보 · 문의이력 · AS·도배" onClick={() => setView({ name: "archive" })} />
                 <Card emoji="👥" title={isAdmin ? "관리자 패널" : "가입 승인"}
@@ -4447,6 +4867,9 @@ function MainApp({ session, profile, onProfileChanged }) {
         )}
 
         {/* 자료실 (관리인 전용) */}
+        {view.name === "arrears" && canManage && (
+          <ArrearsView leases={leases} buildings={buildings} me={profile} onBack={() => setView({ name: "manage" })} />
+        )}
         {view.name === "archive" && canManage && (
           <ArchiveView onBack={() => setView({ name: "home" })} />
         )}
