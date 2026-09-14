@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.14.2";
+const APP_VERSION = "2026.09.14.3";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1978,6 +1978,7 @@ function arrearsOf(lease, bill, sum, today) {
   const paid = Number((sum && sum.paid) || 0);
   const owed = due - paid;
   return { monthly, dueDay, months, opening, due, paid, owed, started: !!settle,
+           exempt: !!(bill && bill.exempt), exemptWhy: (bill && bill.exempt_reason) || "",
            lastPaid: (sum && sum.last_paid) || null, leaving: !!lease.move_out,
            owedMonths: monthly > 0 ? Math.floor(owed / monthly) : 0 };
 }
@@ -2242,6 +2243,8 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
   const [opening, setOpening] = useState(String((bill && bill.opening_balance) || 0));
   const [dueDay, setDueDay] = useState(String((bill && bill.due_day) || ""));
   const [act, setAct] = useState({ action: "전화", result: "부재", promise_date: "", note: "" });
+  const [exempt, setExempt] = useState(!!(bill && bill.exempt));
+  const [exemptWhy, setExemptWhy] = useState((bill && bill.exempt_reason) || "");
   const [busy, setBusy] = useState(false);
   const load = async () => {
     const [p, c] = await Promise.all([
@@ -2257,7 +2260,8 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
     setBusy(true);
     const { error } = await sb.from("lease_billing").upsert({
       lease_id: lease.id, settle_from: settle, opening_balance: Number(opening) || 0,
-      due_day: dueDay ? Number(dueDay) : null, updated_at: new Date().toISOString(),
+      due_day: dueDay ? Number(dueDay) : null, exempt, exempt_reason: exemptWhy || null,
+      updated_at: new Date().toISOString(),
     }, { onConflict: "lease_id" });
     setBusy(false);
     if (error) alert("저장 실패: " + error.message); else onSaved();
@@ -2306,6 +2310,13 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
         <Field label="기초 미납(원)"><input className={inputCls} value={opening} onChange={(e) => setOpening(e.target.value.replace(/[^0-9]/g, ""))} /></Field>
         <Field label="납부일(비우면 입주일)"><input className={inputCls} value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ""))} placeholder={String(a.dueDay)} /></Field>
       </div>
+      <label className="flex items-start gap-2 mb-2 text-sm">
+        <input type="checkbox" className="mt-1" checked={exempt} onChange={(e) => setExempt(e.target.checked)} />
+        <span><b>청구 면제</b> — 받을 돈이 없는 세대(예: 전세인데 관리비 면제).
+          <span className="text-slate-400"> 「금액없음」(입력 빠짐)과 구분해서 표시합니다.</span></span>
+      </label>
+      {exempt && <Field label="면제 사유"><input className={inputCls} value={exemptWhy}
+        onChange={(e) => setExemptWhy(e.target.value)} placeholder="예: 전세·관리비 면제 (사장님 확인)" /></Field>}
       <button className={btnPrimary + " w-full mb-4"} disabled={busy} onClick={saveBill}>정산 설정 저장</button>
 
       <h4 className="font-semibold text-slate-700 text-sm mb-1">입금 내역 {pays.length}건</h4>
@@ -2392,10 +2403,12 @@ function ArrearsView({ leases, buildings, me, onBack }) {
     .map((l) => ({ l, b: bName(l.building_id), a: arrearsOf(l, bills[l.id], sums[l.id], today) }))
     .filter((r) => {
       if (only === "owed" && !(r.a.started && r.a.owed > 0)) return false;
+      if (only === "exempt" && !r.a.exempt) return false;
+      if (only !== "exempt" && only !== "all" && r.a.exempt) return false;
       if (only === "notset" && !(r.a.monthly > 0) ) return false;
       if (only === "notset" && r.a.started) return false;
-      if (only === "noamt" && r.a.monthly > 0) return false;
-      if (only !== "noamt" && only !== "all" && r.a.monthly <= 0) return false;
+      if (only === "noamt" && (r.a.monthly > 0 || r.a.exempt)) return false;
+      if (only !== "noamt" && only !== "all" && (r.a.monthly <= 0 || r.a.exempt)) return false;
       if (q.trim()) {
         const t = (r.b + " " + r.l.room_number + " " + (r.l.tenant_name || "")).replace(/\s/g, "");
         if (!t.includes(q.replace(/\s/g, ""))) return false;
@@ -2405,10 +2418,13 @@ function ArrearsView({ leases, buildings, me, onBack }) {
     .sort((x, y) => y.a.owed - x.a.owed), [leases, buildings, bills, sums, only, q]);
 
   const all = leases.filter((l) => !l.vacant);
-  const noAmt = all.filter((l) => monthBill(l) <= 0);      // 월세·관리비가 둘 다 0 = 금액 미입력 의심
+  /* 「금액없음」은 **확인이 필요한 것**만 센다. 청구 면제(예: 전세인데 관리비 면제)는
+     0원이 맞는 것이라 여기서 뺀다 — 안 그러면 진짜 입력 누락이 면제분에 묻힌다. */
+  const noAmt = all.filter((l) => monthBill(l) <= 0 && !(bills[l.id] && bills[l.id].exempt));
+  const exemptCnt = all.filter((l) => bills[l.id] && bills[l.id].exempt).length;
   const notSet = all.filter((l) => !bills[l.id] && monthBill(l) > 0).length;
-  const totalOwed = all.filter((l) => monthBill(l) > 0).reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
-  const owedCnt = all.filter((l) => monthBill(l) > 0).filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
+  const totalOwed = all.filter((l) => monthBill(l) > 0 && !(bills[l.id] && bills[l.id].exempt)).reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
+  const owedCnt = all.filter((l) => monthBill(l) > 0 && !(bills[l.id] && bills[l.id].exempt)).filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
 
   /** 정산을 아직 안 연 세대를 이번 달 1일부터 일괄 시작 */
   const startAll = async () => {
@@ -2458,7 +2474,7 @@ function ArrearsView({ leases, buildings, me, onBack }) {
       </div>
 
       <div className="flex gap-1.5 mb-2 flex-wrap items-center">
-        {[["owed", "미납만"], ["all", "전체"], ["notset", "정산 미개시"], ["noamt", `금액없음 ${noAmt.length}`]].map(([k, label]) => (
+        {[["owed", "미납만"], ["all", "전체"], ["notset", "정산 미개시"], ["noamt", `금액없음 ${noAmt.length}`], ["exempt", `면제 ${exemptCnt}`]].map(([k, label]) => (
           <button key={k} onClick={() => setOnly(k)}
             className={"text-xs rounded-full px-3 py-1 font-semibold border " + (only === k ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-300")}>{label}</button>
         ))}
@@ -2492,10 +2508,12 @@ function ArrearsView({ leases, buildings, me, onBack }) {
                     <td className="px-2 whitespace-nowrap">{l.tenant_name || <span className="text-slate-300">·</span>}
                       {a.leaving && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 font-bold">퇴실예정</span>}</td>
                     <td className="px-2 text-right text-slate-500">
-                      {a.monthly > 0 ? manwon(a.monthly) :
-                        <span className="text-amber-600 font-semibold" title="월세·관리비가 둘 다 0원입니다">금액없음</span>}</td>
+                      {a.exempt ? <span className="text-slate-400" title={a.exemptWhy}>면제</span>
+                        : a.monthly > 0 ? manwon(a.monthly)
+                        : <span className="text-amber-600 font-semibold" title="월세·관리비가 둘 다 0원입니다">금액없음</span>}</td>
                     <td className={"px-2 text-right font-bold " + (a.owed > 0 ? "text-red-600" : "text-slate-300")}>
-                      {a.monthly <= 0 ? <span className="text-amber-600 text-xs">계산 불가</span>
+                      {a.exempt ? <span className="text-slate-300 text-xs">청구 없음</span>
+                        : a.monthly <= 0 ? <span className="text-amber-600 text-xs">계산 불가</span>
                         : a.started ? won(a.owed) : <span className="text-slate-300">미개시</span>}</td>
                     <td className="px-2 text-right">{a.owed > 0 && a.owedMonths > 0 ? <span className="text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold">{a.owedMonths}개월</span> : ""}</td>
                     <td className="px-2 text-slate-500 whitespace-nowrap">{a.lastPaid || <span className="text-slate-300">없음</span>}</td>
