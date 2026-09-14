@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.13.4";
+const APP_VERSION = "2026.09.14.1";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1576,6 +1576,7 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const fileRef = useRef(null);
+  const pickRef = useRef(null);   // 앨범 전용 입력 (capture 없음)
 
   const handleFile = async (f2) => {
     if (!f2) return;
@@ -1638,10 +1639,17 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
   return (
     <Modal title={`📄 계약서 업로드 — ${b.name || ""} ${lease.room_number || ""}`} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-3 break-keep">계약서를 사진으로 찍어 올리면 날짜·금액을 자동 인식합니다. <b>편집자가 승인해야</b> 매물 정보에 반영됩니다.</p>
+      {/* ⛔ 입력을 **둘로 나눈다.** `capture="environment"` 가 붙은 입력 하나만 두면
+             모바일에서 **카메라가 바로 열려 앨범에 미리 찍어 둔 사진을 고를 수 없다**
+             (버튼 글씨는 "촬영 / 선택"이었지만 실제로는 촬영만 됐다).
+             계약서를 미리 다 찍어 두고 나중에 올리는 방식이 실제 업무에 더 맞다. */}
       <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
-      <button className={btnGhost + " w-full py-3 mb-3"} onClick={() => fileRef.current.click()}>
-        {file ? "📷 다른 사진 선택" : "📷 사진 촬영 / 선택"}
-      </button>
+      <input ref={pickRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <button className={btnGhost + " py-3"} onClick={() => fileRef.current.click()}>📷 지금 촬영</button>
+        <button className={btnGhost + " py-3"} onClick={() => pickRef.current.click()}>🖼️ 앨범에서 고르기</button>
+      </div>
+      {file && <p className="text-xs text-slate-400 -mt-2 mb-2">다시 고르려면 위 버튼을 누르세요.</p>}
       {preview && <img src={preview} className="w-full rounded-xl border mb-2 max-h-72 object-contain bg-slate-50" />}
       {ocrState && <p className="text-xs text-blue-600 font-medium mb-2">{ocrState}</p>}
       {Object.keys(extracted).length > 0 && (
