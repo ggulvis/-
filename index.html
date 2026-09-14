@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.14.6";
+const APP_VERSION = "2026.09.14.7";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1968,7 +1968,12 @@ function billedMonths(settleFrom, dueDay, today, until) {
 }
 
 function arrearsOf(lease, bill, sum, today) {
-  const monthly = monthBill(lease);
+  /* 월 청구 = 월세 + 관리비 + **부가 청구**(주차비 등).
+     ⛔ 부가 청구를 leases.management_fee 에 합치지 않는 이유: 그 값은 **꿀방 광고로 나가고**
+        희망가 치환·건물별 정리에도 쓰여서, 주차비를 얹으면 관리비가 부풀려 광고된다.
+        받을 돈(미납 계산)과 내놓는 값(광고)은 다르다. */
+  const extra = Number((bill && bill.extra_monthly) || 0);
+  const monthly = monthBill(lease) + extra;
   const settle = (bill && bill.settle_from) || null;
   const dueDay = (bill && bill.due_day) || (lease.start_date ? Number(String(lease.start_date).slice(8, 10)) : 1);
   // ⚠️ 중도퇴실(move_out)은 **아직 사는 중**이라 청구 대상이다. 다만 퇴실일 뒤로는 안 센다.
@@ -1977,7 +1982,8 @@ function arrearsOf(lease, bill, sum, today) {
   const due = months * monthly + opening;
   const paid = Number((sum && sum.paid) || 0);
   const owed = due - paid;
-  return { monthly, dueDay, months, opening, due, paid, owed, started: !!settle,
+  return { monthly, extra, extraLabel: (bill && bill.extra_label) || "",
+           dueDay, months, opening, due, paid, owed, started: !!settle,
            exempt: !!(bill && bill.exempt), exemptWhy: (bill && bill.exempt_reason) || "",
            noDun: !!(bill && bill.no_dunning), noDunWhy: (bill && bill.no_dunning_reason) || "",
            lastPaid: (sum && sum.last_paid) || null, leaving: !!lease.move_out,
@@ -2443,6 +2449,8 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
   const [exemptWhy, setExemptWhy] = useState((bill && bill.exempt_reason) || "");
   const [noDun, setNoDun] = useState(!!(bill && bill.no_dunning));
   const [noDunWhy, setNoDunWhy] = useState((bill && bill.no_dunning_reason) || "");
+  const [extra, setExtra] = useState(String((bill && bill.extra_monthly) || 0));
+  const [extraLabel, setExtraLabel] = useState((bill && bill.extra_label) || "");
   const [busy, setBusy] = useState(false);
   const load = async () => {
     const [p, c] = await Promise.all([
@@ -2460,6 +2468,7 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
       lease_id: lease.id, settle_from: settle, opening_balance: Number(opening) || 0,
       due_day: dueDay ? Number(dueDay) : null, exempt, exempt_reason: exemptWhy || null,
       no_dunning: noDun, no_dunning_reason: noDunWhy || null,
+      extra_monthly: Number(extra) || 0, extra_label: extraLabel || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "lease_id" });
     setBusy(false);
@@ -2494,7 +2503,8 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
           {phone && <a className={btnGhost} href={"sms:" + phone}>💬 문자</a>}
         </div>
         <p className="text-sm mt-2">
-          월 청구 <b>{won(a.monthly)}</b> (월세 {lease.monthly_rent || 0}만 + 관리비 {lease.management_fee || 0}만) ·
+          월 청구 <b>{won(a.monthly)}</b> (월세 {lease.monthly_rent || 0}만 + 관리비 {lease.management_fee || 0}만
+          {a.extra > 0 && <span className="text-violet-600"> + {a.extraLabel || "부가"} {manwon(a.extra)}</span>}) ·
           납부일 매월 <b>{a.dueDay}일</b>
         </p>
         <p className="text-sm mt-1">
@@ -2509,6 +2519,16 @@ function CollectionModal({ lease, building, bill, me, onClose, onSaved }) {
         <Field label="기초 미납(원)"><input className={inputCls} value={opening} onChange={(e) => setOpening(e.target.value.replace(/[^0-9]/g, ""))} /></Field>
         <Field label="납부일(비우면 입주일)"><input className={inputCls} value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ""))} placeholder={String(a.dueDay)} /></Field>
       </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="부가 월 청구(원)"><input className={inputCls} value={extra}
+          onChange={(e) => setExtra(e.target.value.replace(/[^0-9]/g, ""))} placeholder="예: 주차비 50000" /></Field>
+        <div className="col-span-2"><Field label="부가 청구 내용"><input className={inputCls} value={extraLabel}
+          onChange={(e) => setExtraLabel(e.target.value)} placeholder="예: 주차비" /></Field></div>
+      </div>
+      <p className="text-xs text-slate-400 -mt-2 mb-2 break-keep">
+        주차비처럼 <b>계약서 관리비에 없지만 매달 받는 돈</b>을 여기 넣습니다.
+        매물의 관리비에 합치면 <b>꿀방 광고에 관리비가 부풀려 나갑니다.</b>
+      </p>
       <label className="flex items-start gap-2 mb-2 text-sm">
         <input type="checkbox" className="mt-1" checked={exempt} onChange={(e) => setExempt(e.target.checked)} />
         <span><b>청구 면제</b> — 받을 돈이 없는 세대(예: 전세인데 관리비 면제).
@@ -2628,11 +2648,12 @@ function ArrearsView({ leases, buildings, me, onBack }) {
   const all = leases.filter((l) => !l.vacant);
   /* 「금액없음」은 **확인이 필요한 것**만 센다. 청구 면제(예: 전세인데 관리비 면제)는
      0원이 맞는 것이라 여기서 뺀다 — 안 그러면 진짜 입력 누락이 면제분에 묻힌다. */
-  const noAmt = all.filter((l) => monthBill(l) <= 0 && !(bills[l.id] && bills[l.id].exempt));
+  const billOf = (l) => monthBill(l) + Number((bills[l.id] && bills[l.id].extra_monthly) || 0);
+  const noAmt = all.filter((l) => billOf(l) <= 0 && !(bills[l.id] && bills[l.id].exempt));
   const exemptCnt = all.filter((l) => bills[l.id] && bills[l.id].exempt).length;
   const notSet = all.filter((l) => !bills[l.id] && monthBill(l) > 0).length;
-  const totalOwed = all.filter((l) => monthBill(l) > 0 && !(bills[l.id] && bills[l.id].exempt)).reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
-  const owedCnt = all.filter((l) => monthBill(l) > 0 && !(bills[l.id] && bills[l.id].exempt)).filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
+  const totalOwed = all.filter((l) => billOf(l) > 0 && !(bills[l.id] && bills[l.id].exempt)).reduce((s, l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return s + (a.started && a.owed > 0 ? a.owed : 0); }, 0);
+  const owedCnt = all.filter((l) => billOf(l) > 0 && !(bills[l.id] && bills[l.id].exempt)).filter((l) => { const a = arrearsOf(l, bills[l.id], sums[l.id], today); return a.started && a.owed > 0; }).length;
 
   /** 정산을 아직 안 연 세대를 이번 달 1일부터 일괄 시작 */
   const startAll = async () => {
@@ -2728,7 +2749,8 @@ function ArrearsView({ leases, buildings, me, onBack }) {
                       {a.noDun && <span className="ml-1 text-[10px] bg-slate-100 text-slate-500 border border-slate-300 rounded-full px-1.5 py-0.5 font-bold" title={a.noDunWhy}>독촉 보류</span>}</td>
                     <td className="px-2 text-right text-slate-500">
                       {a.exempt ? <span className="text-slate-400" title={a.exemptWhy}>면제</span>
-                        : a.monthly > 0 ? manwon(a.monthly)
+                        : a.monthly > 0 ? (<span title={a.extra ? `월세·관리비 ${manwon(a.monthly - a.extra)} + 부가 ${manwon(a.extra)} · ${a.extraLabel}` : ""}>
+                            {manwon(a.monthly)}{a.extra > 0 && <span className="text-violet-500 text-[10px] ml-0.5">＋</span>}</span>)
                         : <span className="text-amber-600 font-semibold" title="월세·관리비가 둘 다 0원입니다">금액없음</span>}</td>
                     <td className={"px-2 text-right font-bold " + (a.owed > 0 ? "text-red-600" : "text-slate-300")}>
                       {a.exempt ? <span className="text-slate-300 text-xs">청구 없음</span>
