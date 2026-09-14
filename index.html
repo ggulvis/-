@@ -78,7 +78,7 @@ const sb = IS_CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_A
 /* ⚠️ 배포(커밋)할 때마다 이 값을 반드시 새 값으로 바꿀 것.
    앱이 최신 index.html의 APP_VERSION과 비교해 다르면 "업데이트" 배너를 띄웁니다.
    안 바꾸면 새 기능이 배포돼도 업데이트 알림이 안 뜹니다. */
-const APP_VERSION = "2026.09.14.1";
+const APP_VERSION = "2026.09.14.2";
 
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -1565,6 +1565,38 @@ function LeaseDetailModal({ lease, buildings, events, customFields, canEdit, me,
   );
 }
 
+/* PDF 계약서 지원 — 사장님들이 계약서를 PDF 스캔본으로 받는 일이 많다.
+   ⚠️ **한 PDF에 여러 계약서가 들어 있는 경우가 흔하다**(실제로 받은 파일은 5·13·11쪽이
+      각각 다른 호실이었다). 그래서 1쪽을 무조건 쓰지 않고 **쪽을 고르게** 한다.
+   pdf.js 는 1MB 가 넘어 **쓸 때만 내려받는다**(평소 로딩을 무겁게 하지 않는다). */
+const PDFJS_VER = "3.11.174";   // UMD 빌드(window.pdfjsLib) — 4.x 는 ESM 이라 이 방식으로 못 쓴다
+let _pdfjsPromise = null;
+function loadPdfJs() {
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = new Promise((res, rej) => {
+    if (window.pdfjsLib) return res(window.pdfjsLib);
+    const sc = document.createElement("script");
+    sc.src = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`;
+    sc.onload = () => res(window.pdfjsLib);
+    sc.onerror = () => { _pdfjsPromise = null; rej(new Error("PDF 라이브러리를 못 불러왔습니다")); };
+    document.head.appendChild(sc);
+  }).then((lib) => {
+    lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+    return lib;
+  });
+  return _pdfjsPromise;
+}
+/** PDF 의 한 쪽을 JPEG File 로 만든다 (OCR·업로드는 이미지로만 한다) */
+async function pdfPageToFile(doc, pageNo, name) {
+  const page = await doc.getPage(pageNo);
+  const vp = page.getViewport({ scale: 2 });          // 계약서 글씨를 읽으려면 2배는 필요하다
+  const cv = document.createElement("canvas");
+  cv.width = vp.width; cv.height = vp.height;
+  await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+  const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.85));
+  return new File([blob], name.replace(/\.pdf$/i, "") + `_${pageNo}쪽.jpg`, { type: "image/jpeg" });
+}
+
 /* ---------------- 계약서 사진 업로드 (OCR 자동 추출) ---------------- */
 function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
   const b = buildings.find((x) => x.id === lease.building_id) || {};
@@ -1577,6 +1609,30 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
   const [err, setErr] = useState("");
   const fileRef = useRef(null);
   const pickRef = useRef(null);   // 앨범 전용 입력 (capture 없음)
+  const [pdf, setPdf] = useState(null);        // {doc, count, page, name} — PDF 를 고른 경우
+
+  /** PDF 면 쪽을 골라 이미지로 바꾼 뒤 기존 흐름을 탄다 */
+  const handlePick = async (f2) => {
+    if (!f2) return;
+    if (f2.type === "application/pdf" || /\.pdf$/i.test(f2.name || "")) {
+      setOcrState("PDF 여는 중…"); setExtracted({}); setFile(null); setPreview(null);
+      try {
+        const lib = await loadPdfJs();
+        const doc = await lib.getDocument({ data: await f2.arrayBuffer() }).promise;
+        setPdf({ doc, count: doc.numPages, page: 1, name: f2.name || "계약서.pdf" });
+        await handleFile(await pdfPageToFile(doc, 1, f2.name || "계약서.pdf"));
+      } catch (e) { setOcrState("PDF 를 열지 못했습니다: " + e.message); }
+      return;
+    }
+    setPdf(null);
+    await handleFile(f2);
+  };
+  /** PDF 쪽 이동 — 그 쪽으로 다시 스캔한다 */
+  const gotoPdfPage = async (n) => {
+    if (!pdf || n < 1 || n > pdf.count) return;
+    setPdf({ ...pdf, page: n });
+    await handleFile(await pdfPageToFile(pdf.doc, n, pdf.name));
+  };
 
   const handleFile = async (f2) => {
     if (!f2) return;
@@ -1643,13 +1699,21 @@ function ContractUploadModal({ lease, buildings, me, onClose, onSaved }) {
              모바일에서 **카메라가 바로 열려 앨범에 미리 찍어 둔 사진을 고를 수 없다**
              (버튼 글씨는 "촬영 / 선택"이었지만 실제로는 촬영만 됐다).
              계약서를 미리 다 찍어 두고 나중에 올리는 방식이 실제 업무에 더 맞다. */}
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
-      <input ref={pickRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files[0])} />
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePick(e.target.files[0])} />
+      <input ref={pickRef} type="file" accept="image/*,application/pdf,.pdf" className="hidden" onChange={(e) => handlePick(e.target.files[0])} />
       <div className="grid grid-cols-2 gap-2 mb-3">
         <button className={btnGhost + " py-3"} onClick={() => fileRef.current.click()}>📷 지금 촬영</button>
-        <button className={btnGhost + " py-3"} onClick={() => pickRef.current.click()}>🖼️ 앨범에서 고르기</button>
+        <button className={btnGhost + " py-3"} onClick={() => pickRef.current.click()}>🖼️ 사진·PDF 고르기</button>
       </div>
-      {file && <p className="text-xs text-slate-400 -mt-2 mb-2">다시 고르려면 위 버튼을 누르세요.</p>}
+      {pdf && pdf.count > 1 && (
+        <div className="flex items-center justify-center gap-2 mb-3 bg-amber-50 border border-amber-200 rounded-xl py-2">
+          <button className={btnGhost + " px-3 py-1"} disabled={pdf.page <= 1} onClick={() => gotoPdfPage(pdf.page - 1)}>◀</button>
+          <span className="text-sm font-semibold text-amber-800">{pdf.count}쪽 중 <b>{pdf.page}쪽</b></span>
+          <button className={btnGhost + " px-3 py-1"} disabled={pdf.page >= pdf.count} onClick={() => gotoPdfPage(pdf.page + 1)}>▶</button>
+        </div>
+      )}
+      {pdf && pdf.count > 1 && <p className="text-xs text-slate-400 -mt-2 mb-2 break-keep">이 PDF에 계약서가 여러 건 들어 있습니다. <b>이 방의 계약서 쪽</b>을 찾아서 올려주세요.</p>}
+      {file && !pdf && <p className="text-xs text-slate-400 -mt-2 mb-2">다시 고르려면 위 버튼을 누르세요.</p>}
       {preview && <img src={preview} className="w-full rounded-xl border mb-2 max-h-72 object-contain bg-slate-50" />}
       {ocrState && <p className="text-xs text-blue-600 font-medium mb-2">{ocrState}</p>}
       {Object.keys(extracted).length > 0 && (
