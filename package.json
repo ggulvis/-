@@ -1,0 +1,29 @@
+{
+  "name": "bodam",
+  "version": "1.0.0",
+  "description": "",
+  "main": "validate.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "validate": "node validate.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ggulvis/-.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ggulvis/-/issues"
+  },
+  "homepage": "https://github.com/ggulvis/-#readme",
+  "dependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-react": "^8.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}
