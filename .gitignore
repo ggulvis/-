@@ -1,5 +1,4 @@
 node_modules/
-validate.js
 .DS_Store
 test-results/
 playwright-report/

@@ -9,14 +9,19 @@
 const fs = require('fs');
 const path = require('path');
 
-const INDEX_HTML = path.join(__dirname, '..', '..', 'index.html');
+const ROOT = path.join(__dirname, '..', '..');
 
-// 주소를 여기 또 적지 않는다 — index.html이 원본이다(두 곳에 적으면 갈린다).
+// 주소를 여기 또 적지 않는다 — 앱 코드가 원본이다(두 곳에 적으면 갈린다).
+// 2026-09-20에 설정이 index.html → src/00-config.js 로 옮겨 갔다. 그래서 «찾는다».
 function readSupabaseUrl() {
-  const html = fs.readFileSync(INDEX_HTML, 'utf8');
-  const m = html.match(/const\s+SUPABASE_URL\s*=\s*"([^"]+)"/);
-  if (!m) throw new Error('index.html에서 SUPABASE_URL을 못 찾았다 — 어디를 가로챌지 알 수 없다');
-  return m[1];
+  const files = ['index.html', ...fs.existsSync(path.join(ROOT, 'src'))
+    ? fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.js')).map((f) => path.join('src', f))
+    : []];
+  for (const f of files) {
+    const m = fs.readFileSync(path.join(ROOT, f), 'utf8').match(/const\s+SUPABASE_URL\s*=\s*"([^"]+)"/);
+    if (m) return m[1];
+  }
+  throw new Error('SUPABASE_URL을 앱 코드에서 못 찾았다 — 어디를 가로챌지 알 수 없다');
 }
 
 const TEST_USER = {
