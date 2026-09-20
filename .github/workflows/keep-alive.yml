@@ -7,8 +7,12 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      # ⚠️ 찌를 곳을 함부로 바꾸지 말 것 — 2026-08-07~09-20 사이 12회 연속 실패했다.
+      # 원인: buildings·user_roles는 RLS로 anon이 못 읽어 401(42501)이고, curl -sf가 죽는다.
+      # app_settings는 anon이 200으로 읽는다(2026-09-20 실측). PostgREST를 거쳐 DB까지 닿으므로
+      # 「재우지 않는다」는 목적에 맞는다. /auth/v1/health는 200이지만 인증 서비스만 깨운다.
       - name: Ping Supabase REST API
         run: |
-          curl -sf -o /dev/null -w "HTTP %{http_code}\n" "https://nhkbymfhmqgilbdxirpq.supabase.co/rest/v1/buildings?select=id&limit=1" -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+          curl -sf -o /dev/null -w "HTTP %{http_code}\n" "https://nhkbymfhmqgilbdxirpq.supabase.co/rest/v1/app_settings?select=*&limit=1" -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY"
         env:
           SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oa2J5bWZobXFnaWxiZHhpcnBxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MTQ3MDgsImV4cCI6MjA5MjI5MDcwOH0.Ob3Suz5Fi1zCkVSf3Hoiafns75nKIq0YJ7z9Uh3bt_c
