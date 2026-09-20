@@ -52,6 +52,17 @@ try {
   }
 } catch (e) { /* git이 없거나 첫 커밋 전 — 이 검사만 건너뛴다 */ }
 
+// ④ 지도 잠금 — 모듈을 새로 만들고 CLAUDE.md 표에 안 적으면, 다음 세션은 그 파일이 있는 줄도 모른다.
+//    ⚠️ 이 검사는 «빠진 파일»만 잡는다. 설명이 틀린 것은 못 잡는다(사람이 봐야 한다).
+if (fs.existsSync('CLAUDE.md')) {
+  const map = fs.readFileSync('CLAUDE.md', 'utf8');
+  const missing = names.filter((n) => !map.includes(`${n}.js`));
+  if (missing.length) {
+    console.error(`FAIL: CLAUDE.md 지도에 없는 모듈: ${missing.join(', ')} — 표에 한 줄씩 적을 것`);
+    process.exit(1);
+  }
+}
+
 let bad = 0;
 for (const s of sources) {
   try {
