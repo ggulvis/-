@@ -98,8 +98,48 @@ const NO_ROWS = {
 };
 
 /**
+ * overrides.persist 가 켜진 테이블에 쓰기를 실제로 반영한다 — 저장 뒤 다시 읽는 화면을 시험할 때 쓴다.
+ * upsert 는 on_conflict 칸(없으면 id)으로 같은 행을 찾고, ignore-duplicates 면 건너뛴다(응답에서도 뺀다).
+ * 필터·정렬·페이지는 흉내 내지 않는다(읽기는 늘 전체를 준다).
+ */
+let seq = 0;
+function applyWrite(rows, method, body, search, prefer) {
+  const params = new URLSearchParams(search);
+  if (method === 'DELETE') {
+    const [col, cond] = [...params.entries()].find(([k, v]) => v.startsWith('eq.')) || [];
+    if (!col) return [];
+    const val = cond.slice(3);
+    const gone = rows.filter((r) => String(r[col]) === val);
+    for (let i = rows.length - 1; i >= 0; i--) if (String(rows[i][col]) === val) rows.splice(i, 1);
+    return gone;
+  }
+  if (method !== 'POST') return Array.isArray(body) ? body : [body];
+  const keys = (params.get('on_conflict') || 'id').split(',');
+  const ignore = prefer.includes('ignore-duplicates');
+  const upsert = prefer.includes('resolution=');
+  const out = [];
+  for (const row of Array.isArray(body) ? body : [body]) {
+    const hit = upsert && keys.every((k) => row[k] != null)
+      ? rows.find((r) => keys.every((k) => String(r[k]) === String(row[k]))) : null;
+    if (hit) {
+      if (ignore) continue;
+      Object.assign(hit, row);
+      out.push(hit);
+    } else {
+      const fresh = Object.assign({ id: `mock-${++seq}` }, row);
+      rows.push(fresh);
+      out.push(fresh);
+    }
+  }
+  return out;
+}
+
+/**
  * 앱이 supabase로 보내는 모든 요청을 가로챈다.
- * @returns {{writes: Array, tables: Object, user: Object}} writes = 쓰기 요청 기록
+ * overrides.tables    — 테이블 초기 행
+ * overrides.persist   — 쓰기를 반영할 테이블 이름 목록
+ * overrides.functions — Edge Function 이름 → (본문) => 응답 본문. 없는 함수는 404
+ * @returns {{writes: Array, calls: Array, tables: Object, user: Object}} writes = 쓰기 요청, calls = 함수 호출 기록
  */
 async function installSupabaseMock(context, overrides = {}) {
   const url = new URL(readSupabaseUrl());
@@ -109,7 +149,10 @@ async function installSupabaseMock(context, overrides = {}) {
     { buildings: [BUILDING], leases: [LEASE], user_roles: [USER_ROLE] },
     overrides.tables || {}
   );
+  const persist = new Set(overrides.persist || []);
+  const functions = overrides.functions || {};
   const writes = [];
+  const calls = [];
 
   // 세션 심기 — 앱 스크립트보다 먼저 돈다.
   await context.addInitScript(
@@ -142,6 +185,16 @@ async function installSupabaseMock(context, overrides = {}) {
     // 저장 프로시저 — 있는 척만 한다
     if (p.startsWith('/rest/v1/rpc/')) return json(null);
 
+    // Edge Function — 시험이 준 처리기만 있다
+    if (p.startsWith('/functions/v1/')) {
+      const name = p.replace('/functions/v1/', '').split('/')[0];
+      let body = null;
+      try { body = req.postDataJSON(); } catch (e) { body = req.postData(); }
+      calls.push({ name, body });
+      if (!functions[name]) return json({ code: 'NOT_FOUND', message: 'Requested function was not found' }, 404);
+      return json(await functions[name](body));
+    }
+
     if (p.startsWith('/rest/v1/')) {
       const table = p.replace('/rest/v1/', '').split('?')[0];
       const method = req.method();
@@ -150,10 +203,11 @@ async function installSupabaseMock(context, overrides = {}) {
         let body = null;
         try { body = req.postDataJSON(); } catch (e) { body = req.postData(); }
         writes.push({ table, method, body, search: reqUrl.search });
+        const prefer = String(headers['prefer'] || '');
+        let rows = Array.isArray(body) ? body : [body];
+        if (persist.has(table)) rows = applyWrite(tables[table] = tables[table] || [], method, body, reqUrl.search, prefer);
         // Prefer: return=minimal 이면 PostgREST는 빈 201을 준다
-        const minimal = String(headers['prefer'] || '').includes('return=minimal');
-        if (minimal) return route.fulfill({ status: 201, body: '' });
-        const rows = Array.isArray(body) ? body : [body];
+        if (prefer.includes('return=minimal')) return route.fulfill({ status: 201, body: '' });
         return json(rows, method === 'POST' ? 201 : 200);
       }
 
@@ -168,7 +222,7 @@ async function installSupabaseMock(context, overrides = {}) {
     return json({});
   });
 
-  return { writes, tables, user: TEST_USER, building: BUILDING, lease: LEASE, role: USER_ROLE };
+  return { writes, calls, tables, user: TEST_USER, building: BUILDING, lease: LEASE, role: USER_ROLE };
 }
 
 module.exports = { installSupabaseMock, TEST_USER, BUILDING, LEASE, USER_ROLE };
