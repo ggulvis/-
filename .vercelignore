@@ -1,0 +1,11 @@
+# 손님 주소로 나가면 안 되는 파일(2026-10-01) — 앱이 쓰는 것은 index.html · src/ · sw.js · manifest.json · 아이콘뿐
+CLAUDE.md
+validate.js
+tests/
+test-results/
+playwright-report/
+playwright.config.js
+package.json
+package-lock.json
+node_modules/
+.github/
