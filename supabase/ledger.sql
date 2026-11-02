@@ -57,6 +57,10 @@ create table if not exists public.ledger_rules (
   primary key (direction, pattern)
 );
 
+-- ⚠️ Supabase 2026-10-30부터 새 표는 Data API 권한을 자동으로 받지 않는다(9/23 공지).
+--    이 줄이 없으면 앱에서 표가 «없는 것»처럼 보인다. 아래 RLS가 관리자만 통과시키므로 권한을 넓히는 것이 아니다.
+grant select, insert, update, delete on public.ledger_entries, public.ledger_rules to authenticated;
+
 alter table public.ledger_entries enable row level security;
 alter table public.ledger_rules   enable row level security;
 
